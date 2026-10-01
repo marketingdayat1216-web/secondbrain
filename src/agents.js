@@ -2,7 +2,7 @@
 // Status tiap agen disimpan di D1 supaya Kantor 3D bisa menggerakkan mereka sesuai kerja aslinya.
 
 import { all, first, run } from './db.js';
-import { fastJson, fastChat, smartChat, hasSmart, modelLabel } from './ai.js';
+import { smartJson, smartChat, modelLabel, smartModel } from './ai.js';
 import { searchContext } from './memory.js';
 import { addTask, addNote, getProfile, listTasks } from './store.js';
 import { nowDescription, parseLocal, toLocalInput, daysSince } from './time.js';
@@ -127,10 +127,10 @@ export async function planRun(env, runId) {
   await setAgent(env, 'ceo', 'thinking', 'Menyusun rencana kerja', '', runId);
   const ctx = await sharedContext(env, r.command);
   const team = AGENTS.filter((a) => a.id !== 'ceo').map((a) => `- ${a.id}: ${a.name}, ${a.title}. ${a.role}`).join('\n');
-  const { data, model } = await fastJson(env, [{
+  const { data, model } = await smartJson(env, { maxTokens: 2000, effort: 'medium', system: `Kamu ${BY_ID.ceo.name}, CEO tim AI. ${BY_ID.ceo.role}`, messages: [{
     role: 'user',
-    content: `${ctx}\n\nPERINTAH DARI PEMILIK: ${r.command}\n\nANGGOTA TIM:\n${team}\n\nSebagai CEO, pecah perintah ini menjadi 1-4 tugas berurutan untuk anggota tim yang paling cocok (tugas berikutnya bisa memakai hasil sebelumnya). Tandai "heavy": true hanya untuk penulisan konten panjang atau analisis mendalam.\nBalas HANYA JSON: {"summary":"ringkasan rencana 1 kalimat","assignments":[{"agent":"id_agen","task":"instruksi jelas & spesifik","heavy":false}]}`,
-  }], { system: `Kamu ${BY_ID.ceo.name}, CEO tim AI. ${BY_ID.ceo.role}`, maxTokens: 900 });
+    content: `${ctx}\n\nPERINTAH DARI PEMILIK: ${r.command}\n\nANGGOTA TIM:\n${team}\n\nSebagai CEO, pecah perintah ini menjadi 1-4 tugas berurutan untuk anggota tim yang paling cocok (tugas berikutnya bisa memakai hasil sebelumnya). Tandai "heavy": true untuk penulisan konten panjang atau analisis mendalam (dikerjakan dengan usaha berpikir lebih tinggi).\nBalas HANYA JSON: {"summary":"ringkasan rencana 1 kalimat","assignments":[{"agent":"id_agen","task":"instruksi jelas & spesifik","heavy":false}]}`,
+  }] });
 
   let assignments = Array.isArray(data?.assignments) ? data.assignments : [];
   assignments = assignments
@@ -182,8 +182,7 @@ export async function runStep(env, runId, idx) {
     for (const a of plan) if (a.agent !== step.agent) await setAgent(env, a.agent, 'idle', 'Menunggu giliran', '', runId);
     await setAgent(env, 'ceo', 'thinking', 'Memantau kerja tim', '', runId);
   }
-  const useSmart = step.heavy && hasSmart(env);
-  await setAgent(env, agent.id, 'working', step.task, useSmart ? 'claude-opus' : env.MODEL_FAST || 'llama', runId);
+  await setAgent(env, agent.id, 'working', step.task, smartModel(env), runId);
   await logEvent(env, runId, agent.id, 'start', step.task);
 
   const [ctx, tctx] = await Promise.all([sharedContext(env, r.command + ' ' + step.task), teamContext(env, agent)]);
@@ -200,9 +199,7 @@ TUGAS:
 
   let out;
   try {
-    out = useSmart
-      ? await smartChat(env, { system, messages: [{ role: 'user', content: prompt }], maxTokens: 6000, effort: 'medium' })
-      : await fastChat(env, [{ role: 'user', content: prompt }], { system, maxTokens: 2200, temperature: 0.6 });
+    out = await smartChat(env, { system, messages: [{ role: 'user', content: prompt }], maxTokens: step.heavy ? 8000 : 5000, effort: step.heavy ? 'high' : 'medium', fallback: false });
   } catch (e) {
     await logEvent(env, runId, agent.id, 'error', `Gagal: ${e?.message || e}`);
     out = { text: `(${agent.name} gagal menyelesaikan tugas: ${e?.message || e})`, model: '' };
@@ -231,14 +228,14 @@ export async function finalizeRun(env, runId) {
   const material = results.map((x) => `### ${BY_ID[x.agent]?.name} — ${BY_ID[x.agent]?.title}\nTugas: ${x.task}\n\n${x.output}`).join('\n\n');
   let report;
   try {
-    const out = await fastChat(env, [{
+    const out = await smartChat(env, { fallback: false, maxTokens: 4000, system: `Kamu ${BY_ID.ceo.name}, CEO. ${BY_ID.ceo.role} Bahasa Indonesia, tegas, ringkas.`, messages: [{
       role: 'user',
       content: `PERINTAH PEMILIK: ${r.command}\n\nHASIL KERJA TIM:\n${truncate(material, 14000)}\n\nSusun laporan akhir untuk pemilik: mulai dengan "Ringkasan" (3-5 poin), lalu "Rekomendasi & langkah berikutnya" (urut prioritas). Jangan mengulang seluruh isi hasil tim.`,
-    }], { system: `Kamu ${BY_ID.ceo.name}, CEO. ${BY_ID.ceo.role} Bahasa Indonesia, tegas, ringkas.`, maxTokens: 1500 });
+    }] });
     report = out.text;
     await logEvent(env, runId, 'ceo', 'report', report, out.model);
   } catch (e) {
-    report = '(CEO gagal menyusun ringkasan; lihat hasil tim di bawah.)';
+    report = `(CEO gagal menyusun ringkasan: ${e?.message || e}. Lihat hasil tim di bawah.)`;
   }
   const full = `# Laporan Tim\n\n**Perintah:** ${r.command}\n\n${report}\n\n---\n\n## Detail hasil tim\n\n${material}`;
   const note = await addNote(env, { title: `Laporan Tim #${runId}: ${truncate(r.command, 80)}`, content: full, tags: 'laporan-tim', source: 'agen' });

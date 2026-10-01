@@ -760,7 +760,7 @@ async function researchView(params) {
 
   const renderGallery = async (s) => {
     $('#rk-main').innerHTML = `
-      <div class="rk-main-head"><h3>Iklan</h3><span class="rk-pill">Penilai: tim AI</span></div>
+      <div class="rk-main-head"><h3>Iklan</h3><span class="rk-pill">Penilai: Claude Opus</span></div>
       <div class="rk-filter">
         <div class="row">
           <label class="rk-search">${ico('search')}<input type="search" id="f-q" placeholder="Cari teks iklan / halaman" value="${esc(st.q)}" aria-label="Cari"></label>
@@ -917,7 +917,7 @@ function adRow(a) {
       ${a.headline ? `<div class="hookbox">“${esc(a.headline)}”</div>` : ''}
       ${showBody ? `<div class="adrow-text">${esc(a.body)}</div>` : ''}
       <div class="tags">
-        ${a.angle ? `<span class="tag angle">${esc(a.angle)}</span>` : a.score === null ? '<span class="tag">dinilai tim AI…</span>' : ''}
+        ${a.angle ? `<span class="tag angle">${esc(a.angle)}</span>` : a.score === null ? '<span class="tag">dinilai Claude Opus…</span>' : ''}
         ${a.hook ? `<span class="tag ${strong ? 'hook-strong' : ''}">Hook ${esc(a.hook)}</span>` : ''}
         ${a.is_promo ? `<span class="tag promo">${ico('tagi')}Promo</span>` : ''}
         ${a.risky_claim ? `<span class="tag risk">${ico('warn')}Klaim berisiko</span>` : ''}
@@ -1001,7 +1001,7 @@ async function systemView(params) {
           <dt>Model cepat</dt><dd class="mono">${esc(s.models.fast)} <span class="chip accent">Workers AI</span></dd>
           <dt>Model berat</dt><dd class="mono">${esc(s.models.smart)} ${s.models.smartEnabled ? '<span class="chip accent">aktif</span>' : '<span class="chip warn">tidak aktif</span>'}</dd>
           <dt>Status Opus</dt><dd>${smart ? (smart.ok ? `OK · ${timeAgo(smart.at)}` : `<span class="chip danger">gagal</span> ${esc(smart.error || '')} · ${timeAgo(smart.at)}`) : 'Belum dipakai'}</dd>
-          <dt>Dipakai untuk</dt><dd class="small">Opus: menulis konten, bedah iklan, 5 konten mirip, membaca foto, tugas berat tim. Sisanya Workers AI. Kalau Opus gagal/tidak aktif, otomatis pakai Workers AI.</dd>
+          <dt>Dipakai untuk</dt><dd class="small">Claude Opus (tanpa cadangan): semua analisa — penilaian & bedah iklan, 5 konten mirip, penulisan konten, membaca foto, dan seluruh kerja tim AI. Workers AI hanya untuk chat harian, mencatat tugas/catatan, briefing, rekap, dan voice note.</dd>
         </dl>
         ${s.models.smartEnabled ? '' : '<p class="small muted" style="margin-top:10px">Aktifkan: isi GitHub Secret <code class="mono">ANTHROPIC_API_KEY</code>, lalu jalankan ulang workflow Deploy.</p>'}
       </div>

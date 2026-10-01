@@ -59,6 +59,7 @@ async function writeContent(env, brief) {
     system: `Kamu copywriter & content strategist senior untuk ${env.OWNER_NAME || 'pemilik bisnis'} di Indonesia. Tulis dalam Bahasa Indonesia, Markdown, siap pakai. Gaya mengikuti profil pemilik.`,
     messages: [{ role: 'user', content: `PROFIL: ${profile.summary || '(belum diisi)'}\n\nBRIEF: ${brief}` }],
     maxTokens: 6000,
+    fallback: false,
   });
   const text = `${out.text}\n\n_Ditulis oleh ${modelLabel(out.model)}_`;
   const note = await addNote(env, { title: `Konten: ${truncate(brief, 80)}`, content: text, tags: 'konten', source: 'ai' });

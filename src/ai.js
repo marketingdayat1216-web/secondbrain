@@ -83,8 +83,12 @@ function anthropic(env) {
   return client;
 }
 
+export const OPUS_REQUIRED = 'Analisa memakai Claude Opus: isi GitHub Secret ANTHROPIC_API_KEY, lalu jalankan ulang workflow Deploy.';
+
 // Claude Opus untuk pekerjaan berat. messages memakai format Anthropic (content boleh berisi blok image).
-export async function smartChat(env, { system, messages, maxTokens = 8000, effort = 'medium' }) {
+// fallback: false = jangan pernah pindah ke Workers AI; lempar error kalau Opus tidak bisa dipakai.
+export async function smartChat(env, { system, messages, maxTokens = 8000, effort = 'medium', fallback = true }) {
+  if (!hasSmart(env) && !fallback) throw new Error(OPUS_REQUIRED);
   if (hasSmart(env)) {
     try {
       const resp = await anthropic(env).beta.messages.create({
@@ -103,12 +107,30 @@ export async function smartChat(env, { system, messages, maxTokens = 8000, effor
       await setSetting(env, 'ai_smart_status', { ok: true, at: Date.now(), model: resp.model }).catch(() => {});
       return { text, model: resp.model || smartModel(env), smart: true };
     } catch (e) {
-      console.error('smartChat gagal, pakai Workers AI:', e?.status, e?.message);
+      console.error('smartChat gagal:', e?.status, e?.message);
       await setSetting(env, 'ai_smart_status', { ok: false, at: Date.now(), error: String(e?.message || e).slice(0, 300) }).catch(() => {});
+      if (!fallback) throw new Error(`Claude Opus gagal: ${String(e?.message || e).slice(0, 200)}`);
     }
   }
   const r = await fastChat(env, messages, { system, maxTokens: Math.min(maxTokens, 3500), temperature: 0.6 });
   return { ...r, smart: false };
+}
+
+// Claude Opus yang membalas JSON (analisa terstruktur). Tidak pernah memakai Workers AI.
+export async function smartJson(env, { system, messages, maxTokens = 4000, effort = 'medium' }) {
+  const first = await smartChat(env, { system, messages, maxTokens, effort, fallback: false });
+  let data = safeJson(first.text);
+  if (data) return { data, model: first.model };
+  const retry = await smartChat(env, {
+    system,
+    messages: [...messages, { role: 'assistant', content: first.text.slice(0, 4000) }, { role: 'user', content: 'Balas ulang HANYA dengan JSON valid sesuai format, tanpa teks lain.' }],
+    maxTokens,
+    effort: 'low',
+    fallback: false,
+  });
+  data = safeJson(retry.text);
+  if (!data) throw new Error('Claude Opus tidak membalas JSON yang valid');
+  return { data, model: retry.model };
 }
 
 // Teks dari voice note (Workers AI Whisper).

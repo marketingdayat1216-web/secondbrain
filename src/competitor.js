@@ -2,7 +2,7 @@
 // salin media iklan pemenang ke KV, laporan bedah iklan & "Bikin 5 konten mirip" (Claude Opus).
 
 import { all, first, run, getSetting } from './db.js';
-import { fastJson, smartChat, modelLabel, hasSmart } from './ai.js';
+import { smartJson, smartChat, modelLabel, hasSmart } from './ai.js';
 import { getProfile, addNote } from './store.js';
 import { parseAdDate, daysSince } from './time.js';
 import { truncate, sha256url } from './util.js';
@@ -143,7 +143,7 @@ export async function scoreScan(env, scanId) {
     let ai = {};
     let model = '';
     try {
-      const r = await fastJson(env, [{
+      const r = await smartJson(env, { effort: 'low', maxTokens: 3000, system: 'Kamu juri iklan direct-response yang berpengalaman di pasar Indonesia.', messages: [{
         role: 'user',
         content: `Nilai setiap iklan berikut. Balas HANYA JSON:
 {"scores":[{"id":"library_id","score":0-100,"reason":"alasan 1 kalimat","angle":"${ANGLES.join('|')}","hook":"${HOOKS.join('|')}","promo":true/false,"risky":true/false,"worth_copy":true/false}]}
@@ -155,11 +155,13 @@ export async function scoreScan(env, scanId) {
 - worth_copy: polanya layak ditiru pengiklan lain (bukan kalimatnya).
 
 ${batch.map((a) => `id ${a.library_id} | halaman ${a.page_name} | CTA ${a.cta || '-'}\n"${truncate(a.body.replace(/\s+/g, ' '), 500) || a.headline || '(tanpa teks, iklan visual)'}"`).join('\n\n')}`,
-      }], { system: 'Kamu juri iklan direct-response yang berpengalaman di pasar Indonesia.', maxTokens: 1800 });
+      }] });
       model = r.model;
       for (const s of r.data?.scores || []) ai[String(s.id)] = s;
     } catch (e) {
-      console.error('scoreScan AI', e?.message);
+      // Opus tidak bisa dipakai: simpan skor heuristik dulu; angle/hook dinilai ulang pada scan berikutnya.
+      console.error('scoreScan Opus', e?.message);
+      model = '';
     }
     const pick = (v, list, def) => list.find((x) => x.toLowerCase() === String(v || '').toLowerCase().trim()) || def;
     const stmts = batch.map((a) => {
@@ -175,7 +177,7 @@ ${batch.map((a) => `id ${a.library_id} | halaman ${a.page_name} | CTA ${a.cta ||
       ).bind(
         Math.min(100, score),
         a.score_reason || reason,
-        aiScore === null ? (a.score_model || 'heuristik') : model,
+        aiScore === null ? (a.score_model || 'heuristik (Opus belum menilai)') : model,
         s ? pick(s.angle, ANGLES, 'Lainnya') : '',
         hook,
         s?.promo ? 1 : 0,
@@ -261,10 +263,16 @@ export async function analyzeAd(env, adId) {
         ],
       }],
       maxTokens: 5000,
+      fallback: false,
     });
-    let out = await ask(images);
-    // Kalau Claude gagal mengambil gambar, ulangi dengan teks saja sebelum menyerah ke Workers AI.
-    if (!out.smart && images.length) out = await ask([]);
+    let out;
+    try {
+      out = await ask(images);
+    } catch (e) {
+      // Kalau Claude gagal mengambil gambar, ulangi dengan teks saja (tetap Opus).
+      if (!images.length) throw e;
+      out = await ask([]);
+    }
     await run(env, "UPDATE competitor_ads SET analysis = ?, analysis_status = 'done' WHERE id = ?", out.text + `\n\n_Dianalisis oleh ${modelLabel(out.model)}_`, adId);
   } catch (e) {
     await run(env, "UPDATE competitor_ads SET analysis = ?, analysis_status = 'error' WHERE id = ?", `Gagal: ${e?.message || e}`, adId);
@@ -283,6 +291,7 @@ export async function makeVariations(env, adId) {
         content: `Iklan kompetitor yang terbukti bekerja:\n${adSummary(a)}\n${a.analysis ? '\nBedah iklan sebelumnya:\n' + truncate(a.analysis, 4000) : ''}\n\nBISNIS PEMILIK: ${profile.summary || '(belum diisi — buat versi umum yang mudah disesuaikan)'}\n\nBuat 5 konten yang meniru POLA (hook, angle, struktur) iklan ini tetapi untuk bisnis pemilik, orisinal, tanpa menjiplak kalimat. Untuk setiap konten tulis:\n### Konten N — [format: feed/reels/story/carousel]\n- Hook\n- Copy lengkap / script\n- Ide visual\n- CTA\n- Kenapa ini akan bekerja (1 kalimat)`,
       }],
       maxTokens: 7000,
+      fallback: false,
     });
     const text = out.text + `\n\n_Ditulis oleh ${modelLabel(out.model)}_`;
     await run(env, "UPDATE competitor_ads SET variations = ?, variations_status = 'done' WHERE id = ?", text, adId);
