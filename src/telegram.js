@@ -260,7 +260,9 @@ Mulai dengan /profil supaya aku kenal kamu. Website admin: /web`);
         return true;
       }
       const r = await startRun(env, arg, { source: 'telegram' });
-      await sendText(env, `🏢 Tim mulai bekerja (run #${r.id}). Tonton mereka di Kantor 3D: ${origin}/#/kantor\nLaporan akan dikirim ke sini.`);
+      await sendText(env, r.viaClaude
+        ? `🏢 Perintah masuk antrean Claude (run #${r.id}). Buka Claude dengan konektor Second Brain dan kirim:\n"Kerjakan semua antrean analisa di Second Brain"\nLaporan akan dikirim ke sini.`
+        : `🏢 Tim mulai bekerja (run #${r.id}). Tonton mereka di Kantor 3D: ${origin}/#/kantor\nLaporan akan dikirim ke sini.`);
       return true;
     }
     case 'briefing':

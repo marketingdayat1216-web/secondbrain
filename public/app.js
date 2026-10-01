@@ -533,6 +533,7 @@ async function officeView() {
     <div class="page-head"><div><h1>Kantor 3D</h1><p class="muted">Tim AI bergerak sesuai pekerjaan aslinya: rapat di meja tengah, bekerja di meja masing-masing, menyerahkan hasil ke CEO.</p></div></div>
     <div class="office">
       <div>
+        <div id="claude-q"></div>
         <div class="office-stage" id="stage"><div class="office-legend" id="legend"></div></div>
         <form class="office-cmd" id="cmd">
           <input class="grow" id="cmd-input" placeholder="Perintah untuk tim… mis. Buat strategi promo 11.11 untuk produk terlaris" required>
@@ -572,17 +573,20 @@ async function officeView() {
     console.error(e);
     $('#stage').insertAdjacentHTML('beforeend', `<p class="empty">Gagal memuat 3D: ${esc(e.message)}</p>`);
   }
+  claudeBanner($('#claude-q'));
   every(2500, async () => {
     state = await api('/api/agents/state');
     draw();
   });
+  every(10000, () => claudeBanner($('#claude-q')));
   $('#cmd').onsubmit = async (e) => {
     e.preventDefault();
     const input = $('#cmd-input');
     try {
       const r = await api('/api/agents/command', { method: 'POST', body: { command: input.value } });
       input.value = '';
-      toast(`Run #${r.run.id} dimulai`);
+      toast(r.run.viaClaude ? `Run #${r.run.id} masuk antrean Claude` : `Run #${r.run.id} dimulai`);
+      claudeBanner($('#claude-q'));
       state = await api('/api/agents/state');
       draw();
     } catch (err) {
@@ -660,6 +664,7 @@ async function researchView(params) {
       <button data-tab="laporan">${ico('doc')}Laporan bedah iklan</button>
       <button data-tab="konten">${ico('pen')}Konten tim</button>
     </div>
+    <div id="claude-q"></div>
     <div class="rk-stats" id="rk-stats"></div>
     <div class="rk-layout"><div id="rk-main"></div><aside class="rk-side" id="rk-side"></aside></div>`;
 
@@ -742,7 +747,7 @@ async function researchView(params) {
   const loadAds = async () => {
     const p = new URLSearchParams({ q: st.q, page: st.page, angle: st.angle, sort: st.sort, active: st.active ? '1' : '0' });
     const { ads } = await api(`/api/competitor/ads?${p}`);
-    busy = ads.some((a) => a.score === null || a.analysis_status === 'pending' || a.variations_status === 'pending');
+    busy = ads.some((a) => a.score === null || ['pending', 'claude'].includes(a.analysis_status) || ['pending', 'claude'].includes(a.variations_status));
     const list = $('#ads');
     if (!list) return;
     list.innerHTML = ads.length ? ads.map(adRow).join('') : (st.q || st.page || st.angle || st.active)
@@ -787,7 +792,7 @@ async function researchView(params) {
   const renderWork = async (kind) => {
     const isReport = kind === 'laporan';
     const { ads } = await api(isReport ? '/api/competitor/reports' : '/api/competitor/content');
-    busy = ads.some((a) => a.analysis_status === 'pending' || a.variations_status === 'pending');
+    busy = ads.some((a) => ['pending', 'claude'].includes(a.analysis_status) || ['pending', 'claude'].includes(a.variations_status));
     const status = (a) => (isReport ? a.analysis_status : a.variations_status);
     const text = (a) => (isReport ? a.analysis : a.variations);
     $('#rk-main').innerHTML = `
@@ -799,9 +804,9 @@ async function researchView(params) {
       ${ads.map((a) => `
         <details class="work-item" data-id="${a.id}" ${String(a.id) === st.open ? 'open' : ''}>
           <summary><b>${esc(a.page_name || 'Iklan')}</b>${badges(a)}
-            <span class="tag ${status(a) === 'error' ? 'risk' : status(a) === 'pending' ? 'promo' : 'angle'}">${{ pending: isReport ? 'sedang dibedah…' : 'sedang ditulis…', error: 'gagal', done: 'selesai' }[status(a)] || status(a)}</span>
+            <span class="tag ${status(a) === 'error' ? 'risk' : status(a) === 'pending' ? 'promo' : 'angle'}">${{ pending: isReport ? 'sedang dibedah…' : 'sedang ditulis…', claude: 'menunggu Claude', error: 'gagal', done: 'selesai' }[status(a)] || status(a)}</span>
             <span class="muted small" style="flex-basis:100%">${esc(a.headline || a.body.slice(0, 120))}</span></summary>
-          <div class="md">${status(a) === 'pending' ? '<p class="muted">Sedang diproses, 1-3 menit…</p>' : md(text(a))}</div>
+          <div class="md">${status(a) === 'pending' ? '<p class="muted">Sedang diproses, 1-3 menit…</p>' : status(a) === 'claude' ? '<p class="muted">Menunggu dikerjakan Claude lewat konektor (lihat kartu Antrean Claude di atas).</p>' : md(text(a))}</div>
           <div class="adrow-actions" style="margin-top:10px">
             <button class="btn small redo">${isReport ? 'Bedah ulang' : 'Bikin lagi'}</button>
             <a class="btn small" href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Ad Library ${ico('ext')}</a>
@@ -809,14 +814,16 @@ async function researchView(params) {
         </details>`).join('') || `<div class="side-card empty">${isReport ? 'Belum ada laporan. Klik "Bedah 5 iklan terkuat" atau buka detail iklan di Galeri.' : 'Belum ada konten. Klik "Bikin 5 konten mirip" di kartu iklan.'}</div>`}`;
     $('#analyze-top')?.addEventListener('click', async () => {
       const r = await api('/api/competitor/analyze-top', { method: 'POST', body: { n: 5 } });
-      toast(r.queued ? `${r.queued} iklan sedang dibedah` : 'Semua iklan sudah dibedah');
+      toast(r.queued ? `${r.queued} iklan masuk antrean bedah` : 'Semua iklan sudah dibedah');
       renderWork(kind);
+      claudeBanner($('#claude-q'));
     });
     document.querySelectorAll('.work-item').forEach((el) => {
       el.querySelector('.redo').onclick = async () => {
-        await api(`/api/competitor/ads/${el.dataset.id}/${isReport ? 'analyze' : 'variations'}`, { method: 'POST' });
-        toast(isReport ? 'Sedang dibedah ulang…' : 'Sedang ditulis ulang…');
+        const r = await api(`/api/competitor/ads/${el.dataset.id}/${isReport ? 'analyze' : 'variations'}`, { method: 'POST' });
+        toast(r.viaClaude ? 'Masuk antrean Claude' : isReport ? 'Sedang dibedah ulang…' : 'Sedang ditulis ulang…');
         renderWork(kind);
+        claudeBanner($('#claude-q'));
       };
     });
     document.querySelector('.work-item[open]')?.scrollIntoView({ block: 'start' });
@@ -849,9 +856,10 @@ async function researchView(params) {
         box.innerHTML = `<div>${ico('image')}<div>Gambar kedaluwarsa</div><a href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Buka Ad Library</a></div>`;
       }, { once: true }));
       el.querySelector('.make')?.addEventListener('click', async () => {
-        await api(`/api/competitor/ads/${a.id}/variations`, { method: 'POST' });
-        toast('5 konten sedang ditulis… hasil juga dikirim ke Telegram');
+        const r = await api(`/api/competitor/ads/${a.id}/variations`, { method: 'POST' });
+        toast(r.viaClaude ? 'Masuk antrean Claude. Kirim prompt di kartu Antrean Claude ke Claude.' : '5 konten sedang ditulis… hasil juga dikirim ke Telegram');
         loadAds();
+        claudeBanner($('#claude-q'));
       });
       el.querySelector('.see')?.addEventListener('click', () => { st.tab = 'konten'; st.open = String(a.id); renderMain(); });
     });
@@ -859,14 +867,30 @@ async function researchView(params) {
 
   document.querySelectorAll('.rk-tabs button').forEach((b) => (b.onclick = () => { st.tab = b.dataset.tab; st.open = ''; renderMain(); }));
   lastStats = await stats();
-  await Promise.all([renderSide(lastStats), renderMain()]);
+  await Promise.all([renderSide(lastStats), renderMain(), claudeBanner($('#claude-q'))]);
   every(8000, async () => {
     if (!(busy || scanBusy) || document.querySelector('dialog[open]')) return;
     const wasScanning = scanBusy;
     lastStats = await stats();
     if (wasScanning) await renderSide(lastStats);
+    claudeBanner($('#claude-q'));
     if (st.tab === 'galeri') loadAds(); else renderWork(st.tab);
   });
+}
+
+// Kartu "Antrean Claude": muncul saat tidak ada API key dan ada analisa yang menunggu.
+async function claudeBanner(el) {
+  if (!el) return;
+  const c = await api('/api/claude/pending').catch(() => null);
+  if (!c || c.apiKey || !c.total) { el.innerHTML = ''; return; }
+  const parts = [[c.scores, 'iklan dinilai'], [c.reports, 'bedah iklan'], [c.contents, '5 konten mirip'], [c.teams, 'perintah tim'], [c.writes, 'tulisan']]
+    .filter(([n]) => n).map(([n, l]) => `${n} ${l}`).join(' · ');
+  el.innerHTML = `<div class="claude-banner">
+    <div><b>${c.total} pekerjaan menunggu Claude</b><div class="muted small">${parts}</div>
+    <div class="small" style="margin-top:6px">Dikerjakan Claude Opus dari langgananmu. Buka Claude (desktop / claude.ai) dengan konektor Second Brain aktif, lalu kirim:</div></div>
+    <div class="prompt-box" style="margin:0">${esc(c.prompt)}<button aria-label="Salin">${ico('copy')}</button></div>
+  </div>`;
+  el.querySelector('.prompt-box button').onclick = () => navigator.clipboard.writeText(c.prompt).then(() => toast('Disalin. Tempel di Claude.'));
 }
 
 function scanLine(x) {
@@ -905,7 +929,8 @@ function adRow(a) {
   const strong = a.hook === 'Kuat' || a.hook === 'Sangat kuat';
   const showBody = a.body && a.body.trim() !== (a.headline || '').trim();
   const vs = a.variations_status;
-  const action = vs === 'pending' ? `<button class="btn small" disabled>${ico('spark')} Menulis…</button>`
+  const action = vs === 'claude' ? `<button class="btn small" disabled>${ico('spark')} Menunggu Claude</button>`
+    : vs === 'pending' ? `<button class="btn small" disabled>${ico('spark')} Menulis…</button>`
     : vs === 'done' ? `<button class="btn small see">Lihat konten tim</button><button class="btn small make">Bikin lagi</button>`
       : vs === 'error' ? `<button class="btn small err make">${ico('spark')} Gagal — coba lagi</button>`
         : `<button class="btn small make">${ico('spark')} Bikin 5 konten mirip</button>`;
@@ -917,7 +942,7 @@ function adRow(a) {
       ${a.headline ? `<div class="hookbox">“${esc(a.headline)}”</div>` : ''}
       ${showBody ? `<div class="adrow-text">${esc(a.body)}</div>` : ''}
       <div class="tags">
-        ${a.angle ? `<span class="tag angle">${esc(a.angle)}</span>` : a.score === null ? '<span class="tag">dinilai Claude Opus…</span>' : ''}
+        ${a.angle ? `<span class="tag angle">${esc(a.angle)}</span>` : `<span class="tag">${a.score === null ? 'dinilai Claude Opus…' : 'menunggu penilaian Claude'}</span>`}
         ${a.hook ? `<span class="tag ${strong ? 'hook-strong' : ''}">Hook ${esc(a.hook)}</span>` : ''}
         ${a.is_promo ? `<span class="tag promo">${ico('tagi')}Promo</span>` : ''}
         ${a.risky_claim ? `<span class="tag risk">${ico('warn')}Klaim berisiko</span>` : ''}
@@ -930,9 +955,10 @@ function adRow(a) {
 }
 
 async function adAction(id, action, msg, reload) {
-  await api(`/api/competitor/ads/${id}/${action}`, { method: 'POST' });
-  toast(msg);
+  const r = await api(`/api/competitor/ads/${id}/${action}`, { method: 'POST' });
+  toast(r.viaClaude ? 'Masuk antrean Claude. Kirim prompt di kartu Antrean Claude ke Claude.' : msg);
   reload();
+  claudeBanner($('#claude-q'));
 }
 
 async function openAd(id, reload) {
@@ -999,11 +1025,11 @@ async function systemView(params) {
         <h2>Otak AI</h2>
         <dl class="kv">
           <dt>Model cepat</dt><dd class="mono">${esc(s.models.fast)} <span class="chip accent">Workers AI</span></dd>
-          <dt>Model berat</dt><dd class="mono">${esc(s.models.smart)} ${s.models.smartEnabled ? '<span class="chip accent">aktif</span>' : '<span class="chip warn">tidak aktif</span>'}</dd>
+          <dt>Analisa</dt><dd>${s.models.smartEnabled ? `<span class="mono">${esc(s.models.smart)}</span> <span class="chip accent">API key</span>` : '<b>Claude langganan</b> lewat konektor <span class="chip accent">antrean Claude</span>'}</dd>
           <dt>Status Opus</dt><dd>${smart ? (smart.ok ? `OK · ${timeAgo(smart.at)}` : `<span class="chip danger">gagal</span> ${esc(smart.error || '')} · ${timeAgo(smart.at)}`) : 'Belum dipakai'}</dd>
-          <dt>Dipakai untuk</dt><dd class="small">Claude Opus (tanpa cadangan): semua analisa — penilaian & bedah iklan, 5 konten mirip, penulisan konten, membaca foto, dan seluruh kerja tim AI. Workers AI hanya untuk chat harian, mencatat tugas/catatan, briefing, rekap, dan voice note.</dd>
+          <dt>Dipakai untuk</dt><dd class="small">Claude Opus (tanpa cadangan Llama): semua analisa — penilaian & bedah iklan, 5 konten mirip, penulisan konten, dan seluruh kerja tim AI. Workers AI hanya untuk chat harian, mencatat tugas/catatan, briefing, rekap, dan voice note.</dd>
         </dl>
-        ${s.models.smartEnabled ? '' : '<p class="small muted" style="margin-top:10px">Aktifkan: isi GitHub Secret <code class="mono">ANTHROPIC_API_KEY</code>, lalu jalankan ulang workflow Deploy.</p>'}
+        ${s.models.smartEnabled ? '' : '<p class="small muted" style="margin-top:10px">Analisa masuk antrean dan dikerjakan Claude Opus dari langgananmu: buka Claude dengan konektor Second Brain, lalu kirim "Kerjakan semua antrean analisa di Second Brain". Mau otomatis tanpa membuka Claude? Isi GitHub Secret <code class="mono">ANTHROPIC_API_KEY</code> (berbayar per pemakaian).</p>'}
       </div>
       <div class="card">
         <h2>Konektor Claude (MCP)</h2>

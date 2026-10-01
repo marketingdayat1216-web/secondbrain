@@ -143,6 +143,7 @@ export async function scoreScan(env, scanId) {
     let ai = {};
     let model = '';
     try {
+      if (!hasSmart(env)) throw new Error('tanpa API key: dinilai lewat antrean Claude');
       const r = await smartJson(env, { effort: 'low', maxTokens: 3000, system: 'Kamu juri iklan direct-response yang berpengalaman di pasar Indonesia.', messages: [{
         role: 'user',
         content: `Nilai setiap iklan berikut. Balas HANYA JSON:
@@ -372,7 +373,7 @@ export async function removeWatch(env, id) {
 // Iklan yang punya laporan bedah / konten tim.
 export async function listWork(env, kind) {
   const col = kind === 'variations' ? 'variations_status' : 'analysis_status';
-  const rows = await all(env, `SELECT * FROM competitor_ads WHERE ${col} != '' ORDER BY ${col} = 'pending' DESC, score DESC LIMIT 100`);
+  const rows = await all(env, `SELECT * FROM competitor_ads WHERE ${col} != '' ORDER BY ${col} IN ('pending', 'claude') DESC, score DESC LIMIT 100`);
   return rows.map((a) => decorateAd(a));
 }
 
@@ -388,6 +389,10 @@ export async function saveReport(env, idOrLibrary, report) {
 export async function analyzeTop(env, n = 5) {
   const rows = await all(env, "SELECT id FROM competitor_ads WHERE analysis_status IN ('', 'error') ORDER BY COALESCE(score, 0) DESC, rank ASC LIMIT ?", Math.min(10, n));
   for (const r of rows) {
+    if (!hasSmart(env)) {
+      await run(env, "UPDATE competitor_ads SET analysis_status = 'claude' WHERE id = ?", r.id);
+      continue;
+    }
     await run(env, "UPDATE competitor_ads SET analysis_status = 'pending' WHERE id = ?", r.id);
     await env.QUEUE.send({ type: 'ads_analyze', adId: r.id });
   }

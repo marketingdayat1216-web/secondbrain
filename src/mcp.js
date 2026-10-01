@@ -1,6 +1,7 @@
 // Server MCP (Streamable HTTP, balasan JSON) supaya Claude di claude.ai / desktop bisa memakai Second Brain.
 
 import { json } from './util.js';
+import { hasSmart } from './ai.js';
 import { corsHeaders, verifyBearer } from './oauth.js';
 import {
   listTasks, addTask, completeTask, updateTask, listNotes, addNote, getNote, getProfile,
@@ -8,6 +9,7 @@ import {
 import { searchContext, remember, listMemories } from './memory.js';
 import { listAds, ingestScan, listWatchlist, saveReport } from './competitor.js';
 import { queueScans } from './browser-scan.js';
+import { pendingWork, pendingCounts, saveScores, saveContent, saveTeamResult, saveWriting } from './claude-queue.js';
 import { first } from './db.js';
 import { startRun, agentState, getRun } from './agents.js';
 import { parseLocal, toLocalInput, nowDescription } from './time.js';
@@ -139,6 +141,58 @@ const TOOLS = [
     name: 'list_watchlist',
     description: 'Daftar pantauan Riset Kompetitor: kata kunci dan halaman kompetitor yang harus di-scan di Meta Ad Library, beserta negaranya.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_pending_work',
+    description: 'Antrean analisa Second Brain yang harus dikerjakan Claude: penilaian iklan, laporan bedah iklan, 5 konten mirip, perintah tim AI, dan penulisan konten. Kerjakan semuanya dengan kemampuan analisa terbaikmu, lalu simpan tiap hasil dengan tool yang disebut di setiap bagian.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'save_ad_scores',
+    description: 'Simpan penilaian iklan kompetitor (bagian A get_pending_work).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scores: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' }, score: { type: 'number' }, angle: { type: 'string' }, hook: { type: 'string' },
+              promo: { type: 'boolean' }, risky: { type: 'boolean' }, worth_copy: { type: 'boolean' }, reason: { type: 'string' },
+            },
+            required: ['id', 'score', 'angle', 'hook'],
+          },
+        },
+      },
+      required: ['scores'],
+    },
+  },
+  {
+    name: 'save_ad_content',
+    description: 'Simpan hasil "Bikin 5 konten mirip" (Markdown) untuk satu iklan (bagian C get_pending_work).',
+    inputSchema: { type: 'object', properties: { id: { type: 'string' }, content: { type: 'string' } }, required: ['id', 'content'] },
+  },
+  {
+    name: 'save_team_result',
+    description: 'Simpan hasil kerja tim AI untuk satu perintah (bagian D get_pending_work): pembagian tugas, output tiap anggota, dan laporan akhir CEO.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'integer' },
+        assignments: {
+          type: 'array',
+          items: { type: 'object', properties: { agent: { type: 'string' }, task: { type: 'string' }, output: { type: 'string' } }, required: ['agent', 'task', 'output'] },
+        },
+        report: { type: 'string', description: 'Laporan akhir CEO (Markdown)' },
+      },
+      required: ['run_id', 'assignments', 'report'],
+    },
+  },
+  {
+    name: 'save_writing',
+    description: 'Simpan konten yang ditulis untuk satu brief (bagian E get_pending_work).',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'integer' }, content: { type: 'string' } }, required: ['task_id', 'content'] },
   },
   {
     name: 'scan_watchlist',
@@ -274,12 +328,31 @@ async function callTool(env, name, args = {}) {
         ? w.map((x) => `- ${x.kind === 'page' ? 'Halaman' : 'Kata kunci'}: "${x.value}" (negara ${x.country}) → https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${x.country}&q=${encodeURIComponent(x.value)}&search_type=${x.kind === 'page' ? 'page' : 'keyword_unordered'}&sort_data[direction]=desc&sort_data[mode]=total_impressions`).join('\n')
         : 'Daftar pantauan kosong. Tambahkan di website: Riset Kompetitor → Daftar pantauan.';
     }
+    case 'get_pending_work':
+      return pendingWork(env);
+    case 'save_ad_scores': {
+      const n = await saveScores(env, args.scores || []);
+      const c = await pendingCounts(env);
+      return `${n} iklan dinilai. Sisa antrean: ${c.total}.`;
+    }
+    case 'save_ad_content': {
+      const id = await saveContent(env, args.id, args.content || '');
+      return id ? `5 konten mirip disimpan untuk iklan #${id}.` : 'Iklan tidak ditemukan.';
+    }
+    case 'save_team_result': {
+      const noteId = await saveTeamResult(env, Number(args.run_id), args.assignments || [], args.report || '');
+      return noteId ? `Hasil tim disimpan (Catatan #${noteId}) dan dikirim ke Telegram.` : 'Run tidak ditemukan.';
+    }
+    case 'save_writing': {
+      const noteId = await saveWriting(env, Number(args.task_id), args.content || '');
+      return noteId ? `Konten disimpan di Catatan #${noteId}.` : 'Tugas tidak ditemukan.';
+    }
     case 'scan_watchlist': {
       const n = await queueScans(env);
       return n ? `${n} item daftar pantauan masuk antrean scan (±1 menit per item).` : 'Daftar pantauan kosong.';
     }
     case 'save_ad_report': {
-      const id = await saveReport(env, args.id, args.report || '');
+      const id = await saveReport(env, args.id, `${args.report || ''}${hasSmart(env) ? '' : '\n\n_Dianalisis oleh Claude (langganan)_'}`);
       return id ? `Laporan disimpan untuk iklan #${id}.` : 'Iklan tidak ditemukan. Simpan dulu iklannya dengan import_competitor_ads.';
     }
     case 'get_competitor_ad': {
@@ -316,7 +389,7 @@ async function handleRpc(env, msg) {
         protocolVersion: SUPPORTED.includes(params.protocolVersion) ? params.protocolVersion : '2025-06-18',
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: env.APP_NAME || 'second-brain', version: '1.0.0' },
-        instructions: `Second Brain milik ${env.OWNER_NAME || 'pemilik'}: tugas, catatan, memori jangka panjang, profil, riset iklan kompetitor, dan tim agen AI. Waktu memakai zona lokal pemilik (format "YYYY-MM-DD HH:mm").`,
+        instructions: `Second Brain milik ${env.OWNER_NAME || 'pemilik'}: tugas, catatan, memori jangka panjang, profil, riset iklan kompetitor, dan tim agen AI. Bila diminta mengerjakan antrean analisa, panggil get_pending_work lalu simpan tiap hasil dengan tool yang disebutkan. Waktu memakai zona lokal pemilik (format "YYYY-MM-DD HH:mm").`,
       });
     case 'ping':
       return ok({});

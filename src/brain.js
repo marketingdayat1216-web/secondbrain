@@ -10,6 +10,7 @@ import { nowDescription, parseLocal, toLocalInput, fmtLocal } from './time.js';
 import { truncate } from './util.js';
 import { isGoogleConnected, listEmails, searchDrive } from './google.js';
 import { startRun } from './agents.js';
+import { queueWrite } from './claude-queue.js';
 
 export async function buildContext(env, text, { taskLimit = 30 } = {}) {
   const [profile, tasks, ctx, google] = await Promise.all([
@@ -180,10 +181,17 @@ export async function executeActions(env, actions, { channel = 'telegram', userT
         }
         case 'run_agents': {
           const run = await startRun(env, String(a.command || userText), { source });
-          lines.push(`🏢 Tim sedang mengerjakan (run #${run.id}). Pantau di Kantor 3D; laporannya akan dikirim ke sini.`);
+          lines.push(run.viaClaude
+            ? `🏢 Perintah tim (run #${run.id}) masuk antrean Claude. Buka Claude dan kirim: "Kerjakan semua antrean analisa di Second Brain".`
+            : `🏢 Tim sedang mengerjakan (run #${run.id}). Pantau di Kantor 3D; laporannya akan dikirim ke sini.`);
           break;
         }
         case 'write_content': {
+          if (!hasSmart(env)) {
+            await queueWrite(env, String(a.brief || userText), channel);
+            lines.push('✍️ Brief masuk antrean Claude. Buka Claude (konektor Second Brain) dan kirim: "Kerjakan semua antrean analisa di Second Brain". Hasilnya dikirim ke sini & disimpan di Catatan.');
+            break;
+          }
           await env.QUEUE.send({ type: 'write_content', brief: String(a.brief || userText), channel });
           lines.push(`✍️ Konten sedang ditulis${hasSmart(env) ? ' oleh Claude Opus' : ''}. Hasilnya dikirim ke Telegram & disimpan di Catatan.`);
           break;

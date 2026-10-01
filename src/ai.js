@@ -27,6 +27,7 @@ export function hasSmart(env) {
 // Nama pendek untuk ditampilkan di Kantor 3D / log.
 export function modelLabel(id = '') {
   const s = String(id).toLowerCase();
+  if (s === 'claude-subscription') return 'Claude (langganan)';
   if (s.includes('opus')) return 'Claude Opus';
   if (s.includes('sonnet')) return 'Claude Sonnet';
   if (s.includes('haiku')) return 'Claude Haiku';

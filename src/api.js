@@ -17,6 +17,7 @@ import {
 import { queueScans, scanStatus } from './browser-scan.js';
 import { googleStatus, googleConnectUrl, googleDisconnect } from './google.js';
 import { fastModel, smartModel, hasSmart, modelLabel } from './ai.js';
+import { pendingCounts } from './claude-queue.js';
 import { tg } from './telegram-api.js';
 import { parseLocal, toLocalInput, tzLabel, offsetHours, nowDescription } from './time.js';
 import { sendBriefing, sendRecap } from './cron.js';
@@ -208,6 +209,7 @@ export async function handleApi(request, env, url, origin) {
     await removeWatch(env, Number(seg[2]));
     return json({ ok: true });
   }
+  if (path === '/api/claude/pending') return json({ ...(await pendingCounts(env)), apiKey: hasSmart(env) });
   if (path === '/api/competitor/scan' && method === 'POST') {
     const n = await queueScans(env, body.watchId ? [Number(body.watchId)] : []);
     return json({ queued: n });
@@ -229,14 +231,15 @@ export async function handleApi(request, env, url, origin) {
       await deleteAd(env, adId);
       return json({ ok: true });
     }
-    if (method === 'POST' && action === 'analyze') {
-      await run(env, "UPDATE competitor_ads SET analysis_status = 'pending' WHERE id = ?", adId);
-      await env.QUEUE.send({ type: 'ads_analyze', adId });
-      return json({ ok: true });
-    }
-    if (method === 'POST' && action === 'variations') {
-      await run(env, "UPDATE competitor_ads SET variations_status = 'pending' WHERE id = ?", adId);
-      await env.QUEUE.send({ type: 'ads_variations', adId });
+    if (method === 'POST' && (action === 'analyze' || action === 'variations')) {
+      const col = action === 'analyze' ? 'analysis_status' : 'variations_status';
+      // Tanpa API key: masuk antrean Claude (dikerjakan langganan Claude lewat konektor).
+      if (!hasSmart(env)) {
+        await run(env, `UPDATE competitor_ads SET ${col} = 'claude' WHERE id = ?`, adId);
+        return json({ ok: true, viaClaude: true });
+      }
+      await run(env, `UPDATE competitor_ads SET ${col} = 'pending' WHERE id = ?`, adId);
+      await env.QUEUE.send({ type: action === 'analyze' ? 'ads_analyze' : 'ads_variations', adId });
       return json({ ok: true });
     }
     if (method === 'POST' && action === 'save-media') {

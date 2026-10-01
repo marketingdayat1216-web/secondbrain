@@ -319,3 +319,7 @@ dialog::backdrop { background: rgba(10, 18, 22, 0.5); }
   .adrow { grid-template-columns: 1fr; }
   .adrow-media { aspect-ratio: 4 / 5; max-height: 420px; }
 }
+
+.claude-banner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 360px); gap: 14px; align-items: center; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
+.claude-banner .prompt-box { background: var(--surface); }
+@media (max-width: 760px) { .claude-banner { grid-template-columns: 1fr; } }

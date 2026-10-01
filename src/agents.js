@@ -2,7 +2,7 @@
 // Status tiap agen disimpan di D1 supaya Kantor 3D bisa menggerakkan mereka sesuai kerja aslinya.
 
 import { all, first, run } from './db.js';
-import { smartJson, smartChat, modelLabel, smartModel } from './ai.js';
+import { smartJson, smartChat, modelLabel, smartModel, hasSmart } from './ai.js';
 import { searchContext } from './memory.js';
 import { addTask, addNote, getProfile, listTasks } from './store.js';
 import { nowDescription, parseLocal, toLocalInput, daysSince } from './time.js';
@@ -87,11 +87,15 @@ export async function getRun(env, id) {
 export async function startRun(env, command, { source = 'web' } = {}) {
   command = String(command || '').trim();
   if (!command) throw new Error('Perintah kosong');
-  const r = await first(env, 'INSERT INTO agent_runs (command, status, source, created_at) VALUES (?, ?, ?, ?) RETURNING *', command, 'queued', source, Date.now());
-  await setAgent(env, 'ceo', 'thinking', 'Membaca perintah: ' + command, '', r.id);
-  await logEvent(env, r.id, 'ceo', 'info', `Perintah masuk: ${command}`);
-  await env.QUEUE.send({ type: 'agent_plan', runId: r.id });
-  return r;
+  // Tanpa API key: tim dikerjakan Claude langganan lewat konektor (antrean Claude).
+  const viaClaude = !hasSmart(env);
+  const r = await first(env, 'INSERT INTO agent_runs (command, status, source, created_at) VALUES (?, ?, ?, ?) RETURNING *', command, viaClaude ? 'waiting_claude' : 'queued', source, Date.now());
+  await setAgent(env, 'ceo', 'thinking', (viaClaude ? 'Menunggu Claude: ' : 'Membaca perintah: ') + command, '', r.id);
+  await logEvent(env, r.id, 'ceo', 'info', viaClaude
+    ? `Perintah masuk: ${command}\nMenunggu Claude (langganan). Buka Claude dengan konektor Second Brain dan kirim: "Kerjakan semua antrean analisa di Second Brain".`
+    : `Perintah masuk: ${command}`);
+  if (!viaClaude) await env.QUEUE.send({ type: 'agent_plan', runId: r.id });
+  return { ...r, viaClaude };
 }
 
 async function sharedContext(env, command) {
