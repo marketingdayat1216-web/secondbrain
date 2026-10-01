@@ -166,7 +166,6 @@ async function start() {
   if (!status.loggedIn) return showLogin();
   ME = await api('/api/me');
   document.title = ME.app;
-  $('#brand-name').textContent = ME.app;
   $('#who').textContent = ME.owner;
   $('#login').hidden = true;
   $('#app').hidden = false;
@@ -599,6 +598,7 @@ function adLibraryScanner(ORIGIN) {
   var START_RE = /(Started running on|Mulai ditayangkan pada|Mulai tayang pada|Mulai berjalan pada|Mulai ditayangkan)\s+([^·\n]+)/i;
   var VAR_RE = /(\d+)\s+(ads use this creative|iklan menggunakan materi|iklan menggunakan konten|iklan menggunakan)/i;
   var CTA_RE = /^(Shop now|Learn more|Sign up|Send message|Send WhatsApp message|WhatsApp|Book now|Order now|Get offer|Contact us|Download|Install now|Apply now|Subscribe|Watch more|Belanja sekarang|Pelajari selengkapnya|Selengkapnya|Daftar|Kirim pesan|Kirim Pesan WhatsApp|Pesan sekarang|Hubungi kami|Dapatkan penawaran|Unduh|Instal sekarang|Lamar sekarang)$/i;
+  var DOMAIN_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
   var count = function (t) { var m = (t || '').match(ID_RE_G); return m ? m.length : 0; };
   var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   var seen = {};
@@ -613,6 +613,7 @@ function adLibraryScanner(ORIGIN) {
     var text = card.innerText || '';
     var start = text.match(START_RE);
     var variants = text.match(VAR_RE);
+    var active = !/\b(Inactive|Tidak aktif|Nonaktif)\b/i.test(text);
     var bodyEl = card.querySelector('div[style*="pre-wrap"], span[style*="pre-wrap"]');
     var body = bodyEl ? bodyEl.innerText : '';
     if (!body) {
@@ -632,10 +633,13 @@ function adLibraryScanner(ORIGIN) {
       pageName = strong ? strong.innerText.trim().slice(0, 80) : '';
     }
     var cta = '';
-    var cands = card.querySelectorAll('div[role="button"], a[role="link"], span');
-    for (var j = 0; j < cands.length && !cta; j++) {
-      var ct = (cands[j].innerText || '').trim();
-      if (ct && ct.length < 40 && CTA_RE.test(ct)) cta = ct;
+    var landing = '';
+    var leaves = card.querySelectorAll('div, span, a');
+    for (var j = 0; j < leaves.length; j++) {
+      if (leaves[j].children.length) continue;
+      var ct = (leaves[j].innerText || '').trim();
+      if (!cta && ct && ct.length < 40 && CTA_RE.test(ct)) cta = ct;
+      if (!landing && ct && ct.length < 60 && DOMAIN_RE.test(ct) && !/facebook|instagram|fb\.me/i.test(ct)) landing = ct.toLowerCase();
     }
     var imgs = [];
     card.querySelectorAll('img').forEach(function (im) {
@@ -644,11 +648,13 @@ function adLibraryScanner(ORIGIN) {
       if (w >= 150 && src && src.indexOf('http') === 0 && imgs.indexOf(src) < 0) imgs.push(src);
     });
     var vids = [];
+    var seconds = null;
     card.querySelectorAll('video').forEach(function (v) {
       var src = v.currentSrc || v.src || (v.querySelector('source') || {}).src;
       if (src && src.indexOf('blob:') !== 0) vids.push({ src: src, poster: v.poster || '' });
+      if (!seconds && isFinite(v.duration) && v.duration > 0) seconds = Math.round(v.duration);
     });
-    ads.push({ libraryId: mm[2], pageName: pageName, pageUrl: pageUrl, body: body.slice(0, 5000), cta: cta, startDate: start ? start[2].trim() : '', variants: variants ? variants[1] : 1, images: imgs.slice(0, 6), videos: vids.slice(0, 3) });
+    ads.push({ libraryId: mm[2], pageName: pageName, pageUrl: pageUrl, body: body.slice(0, 5000), cta: cta, landing: landing, active: active, startDate: start ? start[2].trim() : '', variants: variants ? variants[1] : 1, images: imgs.slice(0, 6), videos: vids.slice(0, 3), videoSeconds: seconds });
   }
   if (!ads.length) { alert('Tidak menemukan iklan. Buka hasil pencarian Meta Ad Library dan scroll sampai iklan muncul.'); return; }
   var u = new URL(location.href);
@@ -664,89 +670,279 @@ function bookmarkletHref() {
   return 'javascript:' + encodeURIComponent(`(${adLibraryScanner.toString()})(${JSON.stringify(location.origin)});void 0`);
 }
 
+const ICO = {
+  megaphone: '<path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  doc: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+  pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5L5 20"/>',
+  ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  tagi: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+  spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+};
+const ico = (name, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICO[name]}</svg>`;
+const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+const fmtDay = (ts) => { if (!ts) return ''; const d = new Date(ts); return `${d.getUTCDate()} ${BULAN[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
+const fmtDur = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
+function fmtWhen(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toDateString() === new Date().toDateString() ? `Hari ini ${hm}` : `${d.getDate()} ${BULAN[d.getMonth()]} ${hm}`;
+}
+const CLAUDE_PROMPT = 'Scan iklan kompetitor dari daftar pantauan Second Brain di Meta Ad Library (pakai browser, urut impresi, ambil gambar & video), simpan semua hasilnya, lalu buat laporan bedah iklannya.';
+
 async function researchView(params) {
-  const { scans, keywords } = await api('/api/competitor/scans');
-  let keyword = params.get('keyword') ?? (keywords[0]?.keyword || '');
-  let sort = params.get('sort') || 'rank';
-  let winners = params.get('winners') === '1';
+  const st = {
+    tab: params.get('tab') || 'galeri',
+    q: params.get('q') || '',
+    page: params.get('page') || '',
+    angle: '',
+    sort: 'impressions',
+    active: false,
+    open: params.get('open') || '',
+  };
   let busy = false;
   view.innerHTML = `
-    <div class="page-head"><div><h1>Riset Kompetitor</h1><p class="muted">Iklan dari Meta Ad Library: gambar &amp; video, lama tayang, urutan impresi, skor, bedah iklan, dan "Bikin 5 konten mirip".</p></div>
-      <button class="btn" id="howto">Cara scan</button></div>
-    <div class="row" style="margin-bottom:14px">
-      <select id="kw" style="width:auto;max-width:100%">
-        <option value="">Semua kata kunci</option>
-        ${keywords.map((k) => `<option value="${esc(k.keyword)}" ${k.keyword === keyword ? 'selected' : ''}>${esc(k.keyword || '(tanpa kata kunci)')} · ${k.n}</option>`).join('')}
-      </select>
-      <div class="tabs" id="sort">
-        <button data-s="rank">Urutan impresi</button><button data-s="days">Paling lama tayang</button><button data-s="score">Skor</button><button data-s="new">Terbaru</button>
-      </div>
-      <label class="row small" style="gap:6px"><input type="checkbox" id="winners" style="width:auto" ${winners ? 'checked' : ''}> Pemenang saja</label>
+    <div class="page-head rk-head"><div><h1>Riset Kompetitor</h1><p class="muted">Iklan kompetitor dari Meta Ad Library: lengkap dengan gambar &amp; video, lama tayang, duplikat, dan urutan impresi.</p></div></div>
+    <div class="rk-tabs" role="tablist">
+      <button data-tab="galeri">${ico('megaphone')}Galeri iklan</button>
+      <button data-tab="laporan">${ico('doc')}Laporan bedah iklan</button>
+      <button data-tab="konten">${ico('pen')}Konten tim</button>
     </div>
-    <div class="ad-grid" id="ads"></div>`;
-  const howto = () => dialog(`
-    <div class="dlg-body">
-      <h2>Cara scan iklan kompetitor</h2>
-      <ol class="steps">
-        <li>Seret tombol ini ke <b>bookmark bar</b> Chrome (tampilkan dengan Ctrl/⌘+Shift+B):<br><br><a class="bookmarklet" id="bm" href="#">Kirim ke Second Brain</a></li>
-        <li>Buka <a href="https://www.facebook.com/ads/library/" target="_blank" rel="noopener">Meta Ad Library</a>, pilih negara, kategori <i>Semua iklan</i>, lalu cari kata kunci.</li>
-        <li>Urutkan <b>Impressions: high to low</b> (Tayangan: tertinggi ke terendah) dan scroll supaya lebih banyak iklan dimuat.</li>
-        <li>Klik bookmark <b>Kirim ke Second Brain</b>. Jendela kecil terbuka dan iklan tersimpan di sini.</li>
-      </ol>
-      <h3 style="margin-top:6px">Atau lewat Claude + konektor Meta Ads</h3>
-      <p class="small">Di claude.ai, aktifkan konektor <b>Meta Ads</b> dan konektor Second Brain (URL di menu Sistem), lalu minta misalnya: <i>"Cari iklan aktif kompetitor skincare di Indonesia lewat Ad Library, lalu simpan ke Second Brain."</i> Cara ini tidak membawa gambar/video dan urutan impresi; untuk itu pakai bookmark di atas.</p>
-      <p class="muted small">Pastikan kamu sudah login di website ini pada browser yang sama. Iklan pemenang (tayang ≥30 hari, 5 teratas, atau skor ≥75) otomatis disalin permanen karena link media Facebook kedaluwarsa dalam beberapa hari.</p>
-    </div>
-    <div class="dlg-foot"><span></span><button class="btn" onclick="this.closest('dialog').close()">Tutup</button></div>`,
-  { onOpen: (d) => { const a = $('#bm', d); a.href = bookmarkletHref(); a.onclick = (e) => { e.preventDefault(); toast('Seret tombol ini ke bookmark bar, jangan diklik di sini.'); }; } });
-  $('#howto').onclick = howto;
+    <div class="rk-stats" id="rk-stats"></div>
+    <div class="rk-layout"><div id="rk-main"></div><aside class="rk-side" id="rk-side"></aside></div>`;
 
-  const load = async () => {
-    document.querySelectorAll('#sort button').forEach((b) => b.classList.toggle('on', b.dataset.s === sort));
-    const { ads } = await api(`/api/competitor/ads?keyword=${encodeURIComponent(keyword)}&sort=${sort}&winners=${winners ? 1 : 0}`);
-    busy = ads.some((a) => a.score === null || a.analysis_status === 'pending' || a.variations_status === 'pending');
-    $('#ads').innerHTML = ads.length ? ads.map(adCard).join('') : `<div class="card empty" style="grid-column:1/-1">Belum ada iklan${scans.length ? ' untuk filter ini' : ''}. <a href="#" id="howto2">Lihat cara scan</a>.</div>`;
-    $('#howto2')?.addEventListener('click', (e) => { e.preventDefault(); howto(); });
-    document.querySelectorAll('.ad[data-id]').forEach((el) => {
-      el.querySelector('.open').onclick = () => openAd(el.dataset.id, load);
-      el.querySelector('.analyze').onclick = () => adAction(el.dataset.id, 'analyze', 'Bedah iklan sedang dibuat…', load);
-      el.querySelector('.vars').onclick = () => adAction(el.dataset.id, 'variations', '5 konten sedang ditulis… hasil juga dikirim ke Telegram', load);
-      el.querySelectorAll('img').forEach((img) => img.addEventListener('error', () => { img.replaceWith(Object.assign(document.createElement('div'), { className: 'nomedia', textContent: 'Gambar kedaluwarsa — scan ulang iklan ini' })); }, { once: true }));
-    });
+  const stats = async () => {
+    const s = await api('/api/competitor/stats');
+    const t = s.totals || {};
+    $('#rk-stats').innerHTML = [['Iklan tersimpan', t.total], ['Masih tayang', t.active], ['Halaman kompetitor', t.pages], ['Baru 7 hari', t.new7]]
+      .map(([l, n]) => `<div class="rk-stat"><div class="l">${l}</div><div class="n">${n || 0}</div></div>`).join('');
+    return s;
   };
-  $('#kw').onchange = (e) => { keyword = e.target.value; load(); };
-  document.querySelectorAll('#sort button').forEach((b) => (b.onclick = () => { sort = b.dataset.s; load(); }));
-  $('#winners').onchange = (e) => { winners = e.target.checked; load(); };
-  await load();
-  if (!scans.length) howto();
-  // Muat ulang hanya selama ada penilaian/bedah/penulisan yang sedang berjalan.
-  every(8000, () => { if (busy && !document.querySelector('dialog[open]')) load(); });
+
+  const renderSide = async (s) => {
+    const { watchlist } = await api('/api/competitor/watchlist');
+    const maxAngle = Math.max(1, ...s.angles.map((a) => a.n));
+    const last = s.lastScan;
+    $('#rk-side').innerHTML = `
+      <section><h3>Daftar pantauan</h3><div class="side-card">
+        ${watchlist.map((w) => `<div class="watch-item"><span class="kind">${w.kind === 'page' ? 'Halaman' : 'Kata kunci'}</span><span class="val">${esc(w.value)}</span><span class="muted small">${esc(w.country)}</span><button data-del="${w.id}" aria-label="Hapus">${ico('trash')}</button></div>`).join('')}
+        <form class="watch-form" id="watch-form">
+          <select name="kind" aria-label="Jenis"><option value="keyword">Kata kunci</option><option value="page">Halaman</option></select>
+          <input name="value" placeholder="mis. novia" required aria-label="Kata kunci atau halaman">
+          <button class="btn primary">${ico('plus')} Pantau</button>
+        </form>
+      </div></section>
+      <section><h3>Cara scan</h3><div class="side-card pad">
+        <p class="scan-step">1. Sendiri, lewat Chrome di laptop</p>
+        <p class="muted small">Seret tombol ini ke bookmark bar. Buka Ad Library, cari kata kunci, urutkan <i>Impressions: high to low</i>, lalu klik bookmark-nya. Semua iklan beserta gambar &amp; videonya masuk ke sini.</p>
+        <a class="btn primary small" id="bm" href="#">${ico('megaphone')} Kirim ke Second Brain</a>
+        <p class="scan-step" style="margin-top:16px">2. Lewat Claude (bisa sekaligus dibuatkan laporan)</p>
+        <p class="muted small">Di Claude desktop / Claude in Chrome (konektor Second Brain aktif), kirim:</p>
+        <div class="prompt-box">${esc(CLAUDE_PROMPT)}<button id="copy-prompt" aria-label="Salin">${ico('copy')}</button></div>
+        ${last ? `<p class="muted small">Scan terakhir ${fmtWhen(last.created_at)} · ${last.ad_count} iklan, ${last.new_count} baru</p>` : '<p class="muted small">Belum pernah scan.</p>'}
+      </div></section>
+      <section><h3>Kompetitor</h3><div class="side-card">
+        ${s.competitors.map((c) => `<button class="comp-item ${st.page === c.page_name ? 'on' : ''}" data-page="${esc(c.page_name)}">${esc(c.page_name)}<small>${c.active}/${c.total} tayang · terlama ${c.oldest_days} hari</small></button>`).join('') || '<p class="empty">Belum ada.</p>'}
+      </div></section>
+      <section><h3>Angle yang dipakai</h3><div class="side-card pad">
+        ${s.angles.map((a) => `<div class="angle-row"><div class="top"><span>${esc(a.angle)}</span><span>${a.n}</span></div><div class="angle-bar"><span style="width:${Math.round((a.n / maxAngle) * 100)}%"></span></div></div>`).join('') || '<p class="muted small">Muncul setelah iklan dinilai tim AI.</p>'}
+      </div></section>`;
+    const bm = $('#bm');
+    bm.href = bookmarkletHref();
+    bm.onclick = (e) => { e.preventDefault(); toast('Seret tombol ini ke bookmark bar, jangan diklik di sini.'); };
+    $('#copy-prompt').onclick = () => navigator.clipboard.writeText(CLAUDE_PROMPT).then(() => toast('Disalin'));
+    $('#watch-form').onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api('/api/competitor/watchlist', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+        toast('Ditambahkan ke daftar pantauan');
+        renderSide(s);
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+    document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
+      await api(`/api/competitor/watchlist/${b.dataset.del}`, { method: 'DELETE' });
+      renderSide(s);
+    }));
+    document.querySelectorAll('.comp-item[data-page]').forEach((b) => (b.onclick = () => {
+      st.page = st.page === b.dataset.page ? '' : b.dataset.page;
+      st.tab = 'galeri';
+      renderMain();
+      document.querySelectorAll('.comp-item').forEach((x) => x.classList.toggle('on', x.dataset.page === st.page));
+    }));
+  };
+
+  const loadAds = async () => {
+    const p = new URLSearchParams({ q: st.q, page: st.page, angle: st.angle, sort: st.sort, active: st.active ? '1' : '0' });
+    const { ads } = await api(`/api/competitor/ads?${p}`);
+    busy = ads.some((a) => a.score === null || a.analysis_status === 'pending' || a.variations_status === 'pending');
+    const list = $('#ads');
+    if (!list) return;
+    list.innerHTML = ads.length ? ads.map(adRow).join('') : '<div class="side-card empty">Belum ada iklan untuk filter ini. Tambahkan kata kunci di Daftar pantauan, lalu scan lewat bookmark atau Claude.</div>';
+    bindAdRows(list, ads);
+  };
+
+  const renderGallery = async (s) => {
+    $('#rk-main').innerHTML = `
+      <div class="rk-main-head"><h3>Iklan</h3><span class="rk-pill">Penilai: tim AI</span></div>
+      <div class="rk-filter">
+        <div class="row">
+          <label class="rk-search">${ico('search')}<input type="search" id="f-q" placeholder="Cari teks iklan / halaman" value="${esc(st.q)}" aria-label="Cari"></label>
+          <select id="f-page" aria-label="Kompetitor"><option value="">Semua kompetitor</option>${s.competitors.map((c) => `<option ${c.page_name === st.page ? 'selected' : ''}>${esc(c.page_name)}</option>`).join('')}</select>
+        </div>
+        <div class="row">
+          <select id="f-angle" aria-label="Angle"><option value="">Semua angle</option>${s.anglesList.map((a) => `<option ${a === st.angle ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select>
+          <select id="f-sort" aria-label="Urutkan">
+            ${[['impressions', 'Impresi terbanyak'], ['days', 'Paling lama tayang'], ['new', 'Terbaru'], ['score', 'Skor tertinggi']].map(([v, l]) => `<option value="${v}" ${v === st.sort ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <label class="rk-check"><input type="checkbox" id="f-active" ${st.active ? 'checked' : ''}> Masih tayang</label>
+      </div>
+      <div class="rk-list" id="ads"><p class="muted">Memuat…</p></div>`;
+    let t;
+    $('#f-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { st.q = e.target.value.trim(); loadAds(); }, 300); };
+    $('#f-page').onchange = (e) => { st.page = e.target.value; loadAds(); document.querySelectorAll('.comp-item').forEach((x) => x.classList.toggle('on', x.dataset.page === st.page)); };
+    $('#f-angle').onchange = (e) => { st.angle = e.target.value; loadAds(); };
+    $('#f-sort').onchange = (e) => { st.sort = e.target.value; loadAds(); };
+    $('#f-active').onchange = (e) => { st.active = e.target.checked; loadAds(); };
+    await loadAds();
+  };
+
+  const renderWork = async (kind) => {
+    const isReport = kind === 'laporan';
+    const { ads } = await api(isReport ? '/api/competitor/reports' : '/api/competitor/content');
+    busy = ads.some((a) => a.analysis_status === 'pending' || a.variations_status === 'pending');
+    const status = (a) => (isReport ? a.analysis_status : a.variations_status);
+    const text = (a) => (isReport ? a.analysis : a.variations);
+    $('#rk-main').innerHTML = `
+      <div class="rk-main-head"><h3>${isReport ? 'Laporan bedah iklan' : 'Konten tim'}</h3>
+        ${isReport ? '<button class="btn small primary" id="analyze-top">Bedah 5 iklan terkuat</button>' : ''}</div>
+      <p class="muted small" style="margin:6px 0 14px">${isReport
+        ? 'Hook, angle, penawaran, celah, dan cara mengadaptasi untuk bisnismu. Bisa juga dibuat Claude lewat konektor (save_ad_report).'
+        : 'Hasil "Bikin 5 konten mirip": konten orisinal yang meniru pola iklan pemenang untuk bisnismu. Salinannya juga ada di Catatan.'}</p>
+      ${ads.map((a) => `
+        <details class="work-item" data-id="${a.id}" ${String(a.id) === st.open ? 'open' : ''}>
+          <summary><b>${esc(a.page_name || 'Iklan')}</b>${badges(a)}
+            <span class="tag ${status(a) === 'error' ? 'risk' : status(a) === 'pending' ? 'promo' : 'angle'}">${{ pending: isReport ? 'sedang dibedah…' : 'sedang ditulis…', error: 'gagal', done: 'selesai' }[status(a)] || status(a)}</span>
+            <span class="muted small" style="flex-basis:100%">${esc(a.headline || a.body.slice(0, 120))}</span></summary>
+          <div class="md">${status(a) === 'pending' ? '<p class="muted">Sedang diproses, 1-3 menit…</p>' : md(text(a))}</div>
+          <div class="adrow-actions" style="margin-top:10px">
+            <button class="btn small redo">${isReport ? 'Bedah ulang' : 'Bikin lagi'}</button>
+            <a class="btn small" href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Ad Library ${ico('ext')}</a>
+          </div>
+        </details>`).join('') || `<div class="side-card empty">${isReport ? 'Belum ada laporan. Klik "Bedah 5 iklan terkuat" atau buka detail iklan di Galeri.' : 'Belum ada konten. Klik "Bikin 5 konten mirip" di kartu iklan.'}</div>`}`;
+    $('#analyze-top')?.addEventListener('click', async () => {
+      const r = await api('/api/competitor/analyze-top', { method: 'POST', body: { n: 5 } });
+      toast(r.queued ? `${r.queued} iklan sedang dibedah` : 'Semua iklan sudah dibedah');
+      renderWork(kind);
+    });
+    document.querySelectorAll('.work-item').forEach((el) => {
+      el.querySelector('.redo').onclick = async () => {
+        await api(`/api/competitor/ads/${el.dataset.id}/${isReport ? 'analyze' : 'variations'}`, { method: 'POST' });
+        toast(isReport ? 'Sedang dibedah ulang…' : 'Sedang ditulis ulang…');
+        renderWork(kind);
+      };
+    });
+    document.querySelector('.work-item[open]')?.scrollIntoView({ block: 'start' });
+  };
+
+  let lastStats;
+  const renderMain = async () => {
+    document.querySelectorAll('.rk-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === st.tab));
+    if (st.tab === 'laporan' || st.tab === 'konten') return renderWork(st.tab);
+    return renderGallery(lastStats);
+  };
+
+  function bindAdRows(root, ads) {
+    const byId = Object.fromEntries(ads.map((a) => [String(a.id), a]));
+    root.querySelectorAll('.adrow').forEach((el) => {
+      const a = byId[el.dataset.id];
+      el.querySelector('.open').onclick = () => openAd(a.id, loadAds);
+      const v = el.querySelector('video');
+      const play = el.querySelector('.play');
+      if (v && play) {
+        play.onclick = () => { v.controls = true; v.play().catch(() => {}); play.remove(); };
+        v.addEventListener('loadedmetadata', () => {
+          const d = el.querySelector('.dur');
+          if (d && !d.textContent && isFinite(v.duration)) d.textContent = fmtDur(Math.round(v.duration));
+        });
+      }
+      el.querySelectorAll('img').forEach((img) => img.addEventListener('error', () => {
+        const box = img.closest('.adrow-media');
+        box.classList.add('empty');
+        box.innerHTML = `<div>${ico('image')}<div>Gambar kedaluwarsa</div><a href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Buka Ad Library</a></div>`;
+      }, { once: true }));
+      el.querySelector('.make')?.addEventListener('click', async () => {
+        await api(`/api/competitor/ads/${a.id}/variations`, { method: 'POST' });
+        toast('5 konten sedang ditulis… hasil juga dikirim ke Telegram');
+        loadAds();
+      });
+      el.querySelector('.see')?.addEventListener('click', () => { st.tab = 'konten'; st.open = String(a.id); renderMain(); });
+    });
+  }
+
+  document.querySelectorAll('.rk-tabs button').forEach((b) => (b.onclick = () => { st.tab = b.dataset.tab; st.open = ''; renderMain(); }));
+  lastStats = await stats();
+  await Promise.all([renderSide(lastStats), renderMain()]);
+  every(8000, async () => {
+    if (!busy || document.querySelector('dialog[open]')) return;
+    lastStats = await stats();
+    if (st.tab === 'galeri') loadAds(); else renderWork(st.tab);
+  });
 }
 
-function adCard(a) {
-  const m = a.media[0];
-  const media = !m ? '<div class="nomedia">Tanpa media<br><a href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Lihat iklan di Ad Library ↗</a></div>'
-    : m.type === 'video'
-      ? `<video src="${esc(m.display)}" ${m.poster ? `poster="${esc(m.poster)}"` : ''} muted playsinline preload="none" controls></video>`
-      : `<img src="${esc(m.display)}" alt="Iklan ${esc(a.page_name)}" loading="lazy" referrerpolicy="no-referrer">`;
-  const pending = (s) => s === 'pending';
-  return `<article class="ad" data-id="${a.id}">
-    <div class="ad-media">${media}${a.rank ? `<span class="rank">#${a.rank}</span>` : ''}${a.winner ? '<span class="chip warn win">🏆 pemenang</span>' : ''}</div>
-    <div class="ad-body">
-      <div class="ad-page">${esc(a.page_name || 'Tanpa nama')}</div>
-      <div class="ad-meta">
-        <span class="chip ${a.days_running >= 30 ? 'accent' : ''}">${a.days_running ?? '?'} hari tayang</span>
-        ${a.score !== null && a.score !== undefined ? `<span class="chip"><span class="score">${a.score}</span>/100</span>` : '<span class="chip">menilai…</span>'}
-        ${a.variants > 1 ? `<span class="chip">${a.variants} varian</span>` : ''}
-        ${a.media.length > 1 ? `<span class="chip">${a.media.length} media</span>` : ''}
-        ${a.media_saved ? '<span class="chip accent">tersimpan</span>' : ''}
+function badges(a) {
+  return `${a.evergreen ? `<span class="bdg ever">Evergreen ${a.days_running} hari</span>` : ''}${a.scaling ? '<span class="bdg scale">Scaling</span>' : ''}${a.rank ? `<span class="bdg imp">Impresi #${a.rank}</span>` : ''}${a.worth_copy ? '<span class="bdg copy">Layak ditiru</span>' : ''}`;
+}
+
+function adRow(a) {
+  const m = a.media.find((x) => x.type === 'video') || a.media[0];
+  const lib = `https://www.facebook.com/ads/library/?id=${esc(a.library_id)}`;
+  let media;
+  if (!m) {
+    media = `<div class="adrow-media empty"><div>${ico('image')}<div>Tanpa media</div><a href="${lib}" target="_blank" rel="noopener">Buka Ad Library</a></div></div>`;
+  } else if (m.type === 'video') {
+    media = `<div class="adrow-media"><video src="${esc(m.display)}" ${m.poster ? `poster="${esc(m.poster)}"` : ''} playsinline preload="${m.poster ? 'none' : 'metadata'}"></video>
+      <button class="play" aria-label="Putar video"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg></button><span class="dur">${fmtDur(a.video_seconds)}</span></div>`;
+  } else {
+    media = `<div class="adrow-media"><img src="${esc(m.display)}" alt="Iklan ${esc(a.page_name)}" loading="lazy" referrerpolicy="no-referrer"></div>`;
+  }
+  const meta = [
+    a.media_type === 'video' ? `video${a.video_seconds ? ' ' + fmtDur(a.video_seconds) : ''}` : a.media_type === 'image' ? 'gambar' : '',
+    a.variants > 1 ? `${a.variants} duplikat` : '',
+    a.start_ts ? `sejak ${fmtDay(a.start_ts)}` : '',
+    a.days_running !== null && a.days_running !== undefined ? `${a.days_running} hari tayang` : '',
+  ].filter(Boolean).join(' · ');
+  const strong = a.hook === 'Kuat' || a.hook === 'Sangat kuat';
+  const showBody = a.body && a.body.trim() !== (a.headline || '').trim();
+  const vs = a.variations_status;
+  const action = vs === 'pending' ? `<button class="btn small" disabled>${ico('spark')} Menulis…</button>`
+    : vs === 'done' ? `<button class="btn small see">Lihat konten tim</button><button class="btn small make">Bikin lagi</button>`
+      : vs === 'error' ? `<button class="btn small err make">${ico('spark')} Gagal — coba lagi</button>`
+        : `<button class="btn small make">${ico('spark')} Bikin 5 konten mirip</button>`;
+  return `<article class="adrow" data-id="${a.id}">
+    ${media}
+    <div class="adrow-body">
+      <div class="adrow-title"><b><a href="#" class="open" onclick="return false" style="color:inherit;text-decoration:none">${esc(a.page_name || 'Tanpa nama')}</a></b>${a.active ? '<span class="live-dot" title="Masih tayang"></span>' : '<span class="tag">berhenti</span>'}${badges(a)}</div>
+      ${meta ? `<div class="adrow-meta">${meta}</div>` : ''}
+      ${a.headline ? `<div class="hookbox">“${esc(a.headline)}”</div>` : ''}
+      ${showBody ? `<div class="adrow-text">${esc(a.body)}</div>` : ''}
+      <div class="tags">
+        ${a.angle ? `<span class="tag angle">${esc(a.angle)}</span>` : a.score === null ? '<span class="tag">dinilai tim AI…</span>' : ''}
+        ${a.hook ? `<span class="tag ${strong ? 'hook-strong' : ''}">Hook ${esc(a.hook)}</span>` : ''}
+        ${a.is_promo ? `<span class="tag promo">${ico('tagi')}Promo</span>` : ''}
+        ${a.risky_claim ? `<span class="tag risk">${ico('warn')}Klaim berisiko</span>` : ''}
+        ${a.cta ? `<span class="tag">${esc(a.cta)}</span>` : ''}
       </div>
-      <div class="ad-text">${esc(a.body || '(tanpa teks)')}</div>
-      <div class="ad-actions">
-        <button class="btn small open">Detail</button>
-        <button class="btn small analyze" ${pending(a.analysis_status) ? 'disabled' : ''}>${pending(a.analysis_status) ? 'Membedah…' : a.analysis_status === 'done' ? 'Bedah ulang' : 'Bedah iklan'}</button>
-        <button class="btn small primary vars" ${pending(a.variations_status) ? 'disabled' : ''}>${pending(a.variations_status) ? 'Menulis…' : 'Bikin 5 konten mirip'}</button>
-      </div>
+      <div class="adrow-foot">${a.landing ? `<span>${esc(a.landing)}</span>` : ''}${a.keyword ? `<span>“${esc(a.keyword)}”</span>` : ''}<span class="grow"></span><a href="${lib}" target="_blank" rel="noopener">Ad Library ${ico('ext')}</a></div>
+      <div class="adrow-actions">${action}</div>
     </div>
   </article>`;
 }
@@ -761,7 +957,7 @@ async function openAd(id, reload) {
   const { ad: a } = await api(`/api/competitor/ads/${id}`);
   const d = dialog(`
     <div class="dlg-body">
-      <h2>${esc(a.page_name || 'Iklan')} <span class="muted small">${a.rank ? '#' + a.rank + ' · ' : ''}${esc(a.keyword)}</span></h2>
+      <h2>${esc(a.page_name || 'Iklan')} <span class="muted small">${a.rank ? 'Impresi #' + a.rank + ' · ' : ''}${esc(a.keyword)}</span></h2>
       <div class="media-strip">${a.media.map((m) => m.type === 'video'
         ? `<video src="${esc(m.display)}" ${m.poster ? `poster="${esc(m.poster)}"` : ''} controls playsinline preload="metadata"></video>`
         : `<img src="${esc(m.display)}" alt="" referrerpolicy="no-referrer">`).join('') || '<p class="muted">Tanpa media.</p>'}</div>
@@ -770,13 +966,13 @@ async function openAd(id, reload) {
         <span class="chip">Skor ${a.score ?? '-'}</span>${a.score_model ? `<span class="chip">dinilai ${esc(a.score_model)}</span>` : ''}${a.cta ? `<span class="chip">CTA: ${esc(a.cta)}</span>` : ''}
       </div>
       <p class="small muted">${esc(a.score_reason)}</p>
-      <div class="card" style="white-space:pre-wrap">${esc(a.body || '(tanpa teks)')}</div>
+      <div class="card" style="white-space:pre-wrap">${esc(a.body || a.headline || '(tanpa teks)')}</div>
       <div class="tabs"><button class="on" data-t="analysis">Bedah iklan</button><button data-t="variations">5 konten mirip</button></div>
       <div id="tab-analysis" class="md">${a.analysis_status === 'pending' ? '<p class="muted">Sedang dibuat… (1-2 menit)</p>' : a.analysis ? md(a.analysis) : '<p class="muted">Belum ada. Klik "Bedah iklan".</p>'}</div>
       <div id="tab-variations" class="md" hidden>${a.variations_status === 'pending' ? '<p class="muted">Sedang ditulis… (1-3 menit)</p>' : a.variations ? md(a.variations) : '<p class="muted">Belum ada. Klik "Bikin 5 konten mirip".</p>'}</div>
     </div>
     <div class="dlg-foot">
-      <div class="row"><a class="btn small" href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Buka di Ad Library</a><button class="btn small danger" id="del">Hapus</button>${a.media_saved ? '' : '<button class="btn small" id="save">Simpan media permanen</button>'}</div>
+      <div class="row"><a class="btn small" href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Buka di Ad Library</a><button class="btn small danger" id="del">Hapus</button>${a.media_saved || !a.media.length ? '' : '<button class="btn small" id="save">Simpan media permanen</button>'}</div>
       <div class="row"><button class="btn small" id="an">Bedah iklan</button><button class="btn small primary" id="va">Bikin 5 konten mirip</button><button class="btn small" id="close">Tutup</button></div>
     </div>`);
   d.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => {
@@ -785,7 +981,7 @@ async function openAd(id, reload) {
     $('#tab-variations', d).hidden = b.dataset.t !== 'variations';
   }));
   $('#close', d).onclick = () => d.close();
-  $('#an', d).onclick = async () => { await adAction(id, 'analyze', 'Bedah iklan sedang dibuat…', reload); d.close(); };
+  $('#an', d).onclick = async () => { await adAction(id, 'analyze', 'Bedah iklan sedang dibuat… lihat tab Laporan bedah iklan', reload); d.close(); };
   $('#va', d).onclick = async () => { await adAction(id, 'variations', '5 konten sedang ditulis…', reload); d.close(); };
   $('#save', d)?.addEventListener('click', async () => { await adAction(id, 'save-media', 'Menyalin media…', reload); d.close(); });
   $('#del', d).onclick = async () => {

@@ -6,7 +6,7 @@ import {
   listTasks, addTask, completeTask, updateTask, listNotes, addNote, getNote, getProfile,
 } from './store.js';
 import { searchContext, remember, listMemories } from './memory.js';
-import { listAds, ingestScan } from './competitor.js';
+import { listAds, ingestScan, listWatchlist, saveReport } from './competitor.js';
 import { first } from './db.js';
 import { startRun, agentState, getRun } from './agents.js';
 import { parseLocal, toLocalInput, nowDescription } from './time.js';
@@ -98,12 +98,13 @@ const TOOLS = [
   },
   {
     name: 'import_competitor_ads',
-    description: 'Simpan iklan kompetitor ke halaman Riset Kompetitor Second Brain. Pakai untuk hasil pencarian Meta Ad Library (mis. dari tool ads_library_search konektor Meta Ads): kirim tiap iklan apa adanya (id, page_id, page_name, ad_creative_link_title, ad_creative_bodies, ad_delivery_start_time, ad_snapshot_url). Setelah tersimpan, iklan dinilai otomatis dan bisa dibedah atau dibuatkan 5 konten mirip dari website.',
+    description: 'Simpan iklan kompetitor ke halaman Riset Kompetitor Second Brain. Pakai untuk hasil pencarian Meta Ad Library: dari tool ads_library_search konektor Meta Ads (kirim tiap iklan apa adanya), atau dari halaman Ad Library yang dibuka di browser (sertakan images/videos, landing_domain, cta, duplicates, dan sorted_by_impressions=true bila diurutkan Impressions: high to low). Setelah tersimpan, iklan dinilai otomatis dan bisa dibedah atau dibuatkan 5 konten mirip dari website.',
     inputSchema: {
       type: 'object',
       properties: {
         keyword: { type: 'string', description: 'Kata kunci pencarian, untuk mengelompokkan hasil' },
         country: { type: 'string', description: 'Kode negara ISO-2, mis. ID' },
+        sorted_by_impressions: { type: 'boolean', description: 'true kalau urutan ads = urutan "Impressions: high to low" di Ad Library (dipakai sebagai IMPRESI #1, #2, ...)' },
         ads: {
           type: 'array',
           items: {
@@ -117,13 +118,34 @@ const TOOLS = [
               ad_creative_body: { type: 'string' },
               ad_delivery_start_time: { description: 'Unix detik atau tanggal YYYY-MM-DD' },
               ad_snapshot_url: { type: 'string' },
-              images: { type: 'array', items: { type: 'string' } },
+              images: { type: 'array', items: { type: 'string' }, description: 'URL gambar iklan' },
+              videos: { type: 'array', items: { type: 'string' }, description: 'URL video iklan' },
+              video_poster: { type: 'string' },
+              video_seconds: { type: 'number' },
+              landing_domain: { type: 'string', description: 'Domain tujuan iklan, mis. toko.my.id' },
+              cta: { type: 'string', description: 'Tombol CTA, mis. Shop now' },
+              duplicates: { type: 'integer', description: 'Jumlah iklan yang memakai materi & teks yang sama' },
+              active: { type: 'boolean', description: 'Masih tayang' },
             },
             required: ['id'],
           },
         },
       },
       required: ['ads'],
+    },
+  },
+  {
+    name: 'list_watchlist',
+    description: 'Daftar pantauan Riset Kompetitor: kata kunci dan halaman kompetitor yang harus di-scan di Meta Ad Library, beserta negaranya.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'save_ad_report',
+    description: 'Simpan laporan bedah iklan (Markdown) untuk satu iklan kompetitor; muncul di tab "Laporan bedah iklan" website.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id iklan Second Brain atau Library ID Meta' }, report: { type: 'string' } },
+      required: ['id', 'report'],
     },
   },
   {
@@ -157,11 +179,14 @@ function fromMetaAd(a = {}) {
     pageName: a.page_name || '',
     pageUrl: a.page_id ? `https://www.facebook.com/${a.page_id}` : '',
     body,
-    cta: '',
     startDate,
-    variants: 1,
+    cta: a.cta || '',
+    landing: a.landing_domain || a.landing || '',
+    variants: Number(a.duplicates) > 0 ? Number(a.duplicates) : 1,
+    videoSeconds: a.video_seconds,
+    active: a.active !== false,
     images: Array.isArray(a.images) ? a.images : [],
-    videos: [],
+    videos: (Array.isArray(a.videos) ? a.videos : []).map((v, i) => ({ src: typeof v === 'string' ? v : v?.src || v?.url || '', poster: i === 0 ? a.video_poster || '' : '' })),
   };
 }
 
@@ -222,7 +247,7 @@ async function callTool(env, name, args = {}) {
     }
     case 'list_competitor_ads': {
       const ads = await listAds(env, { keyword: args.keyword || '', sort: args.sort || 'rank', limit: Math.min(60, args.limit || 20), winners: Boolean(args.winners_only) });
-      return ads.map((a) => `#${a.id} ${a.page_name} | "${a.keyword}"${a.rank ? ` urutan #${a.rank}` : ''} | tayang ${a.days_running ?? '?'} hari | skor ${a.score ?? '-'}${a.winner ? ' | PEMENANG' : ''}\n  ${truncate(a.body.replace(/\s+/g, ' '), 220)}`).join('\n') || 'Belum ada data. Scan dulu dari Meta Ad Library.';
+      return ads.map((a) => `#${a.id} ${a.page_name} | "${a.keyword}"${a.rank ? ` urutan #${a.rank}` : ''} | tayang ${a.days_running ?? '?'} hari | skor ${a.score ?? '-'}${a.angle ? ` | ${a.angle} | hook ${a.hook}` : ''}${a.evergreen ? ' | EVERGREEN' : ''}${a.scaling ? ' | SCALING' : ''}${a.worth_copy ? ' | LAYAK DITIRU' : ''}${a.active ? '' : ' | sudah berhenti'}\n  ${truncate(a.body.replace(/\s+/g, ' '), 220)}`).join('\n') || 'Belum ada data. Scan dulu dari Meta Ad Library.';
     }
     case 'import_competitor_ads': {
       const ads = (args.ads || []).map(fromMetaAd).filter((a) => a.libraryId);
@@ -230,11 +255,22 @@ async function callTool(env, name, args = {}) {
       const r = await ingestScan(env, {
         keyword: args.keyword || '',
         country: args.country || '',
-        url: 'meta-mcp',
-        ranked: false,
+        url: 'claude-mcp',
+        source: args.sorted_by_impressions ? 'claude-browser' : 'meta-mcp',
+        ranked: Boolean(args.sorted_by_impressions),
         ads,
       });
       return `${r.inserted} iklan tersimpan di Riset Kompetitor (kata kunci "${r.scan.keyword}"). Skor dihitung otomatis dalam 1-2 menit. Lihat dengan list_competitor_ads.`;
+    }
+    case 'list_watchlist': {
+      const w = await listWatchlist(env);
+      return w.length
+        ? w.map((x) => `- ${x.kind === 'page' ? 'Halaman' : 'Kata kunci'}: "${x.value}" (negara ${x.country}) → https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${x.country}&q=${encodeURIComponent(x.value)}&search_type=${x.kind === 'page' ? 'page' : 'keyword_unordered'}&sort_data[direction]=desc&sort_data[mode]=total_impressions`).join('\n')
+        : 'Daftar pantauan kosong. Tambahkan di website: Riset Kompetitor → Daftar pantauan.';
+    }
+    case 'save_ad_report': {
+      const id = await saveReport(env, args.id, args.report || '');
+      return id ? `Laporan disimpan untuk iklan #${id}.` : 'Iklan tidak ditemukan. Simpan dulu iklannya dengan import_competitor_ads.';
     }
     case 'get_competitor_ad': {
       const a = await first(env, 'SELECT * FROM competitor_ads WHERE id = ?', Number(args.id));

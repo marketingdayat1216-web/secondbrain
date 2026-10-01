@@ -4,3 +4,4 @@ node_modules/
 .setup-output.txt
 .setup-state.json
 .DS_Store
+.claude/

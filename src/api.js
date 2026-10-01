@@ -11,7 +11,9 @@ import { listMemories, remember, updateMemory, forget } from './memory.js';
 import { summarizeProfile } from './profile.js';
 import { handleMessage } from './brain.js';
 import { agentState, startRun, getRun, AGENTS } from './agents.js';
-import { listAds, listScans, ingestScan, deleteAd, decorateAd } from './competitor.js';
+import {
+  listAds, ingestScan, deleteAd, decorateAd, researchStats, listWatchlist, addWatch, removeWatch, listWork, analyzeTop,
+} from './competitor.js';
 import { googleStatus, googleConnectUrl, googleDisconnect } from './google.js';
 import { fastModel, smartModel, hasSmart, modelLabel } from './ai.js';
 import { tg } from './telegram-api.js';
@@ -175,17 +177,36 @@ export async function handleApi(request, env, url, origin) {
       return json({ error: e.message }, 400);
     }
   }
-  if (path === '/api/competitor/scans') return json(await listScans(env));
+  if (path === '/api/competitor/stats') return json(await researchStats(env));
   if (path === '/api/competitor/ads' && method === 'GET') {
     return json({
       ads: await listAds(env, {
+        q: q.get('q') || '',
+        page: q.get('page') || '',
+        angle: q.get('angle') || '',
+        active: q.get('active') === '1',
         keyword: q.get('keyword') || '',
-        scanId: q.get('scan') ? Number(q.get('scan')) : null,
-        sort: q.get('sort') || 'rank',
-        winners: q.get('winners') === '1',
-        limit: clampInt(q.get('limit'), 1, 300, 120),
+        sort: q.get('sort') || 'impressions',
+        limit: clampInt(q.get('limit'), 1, 300, 200),
       }),
     });
+  }
+  if (path === '/api/competitor/watchlist' && method === 'GET') return json({ watchlist: await listWatchlist(env) });
+  if (path === '/api/competitor/watchlist' && method === 'POST') {
+    try {
+      return json({ watchlist: await addWatch(env, body) }, 201);
+    } catch (e) {
+      return json({ error: e.message }, 400);
+    }
+  }
+  if (seg[0] === 'competitor' && seg[1] === 'watchlist' && seg[2] && method === 'DELETE') {
+    await removeWatch(env, Number(seg[2]));
+    return json({ ok: true });
+  }
+  if (path === '/api/competitor/reports') return json({ ads: await listWork(env, 'analysis') });
+  if (path === '/api/competitor/content') return json({ ads: await listWork(env, 'variations') });
+  if (path === '/api/competitor/analyze-top' && method === 'POST') {
+    return json({ queued: await analyzeTop(env, clampInt(body.n, 1, 10, 5)) });
   }
   if (seg[0] === 'competitor' && seg[1] === 'ads' && seg[2]) {
     const adId = Number(seg[2]);
