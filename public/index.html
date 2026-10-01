@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Second Brain</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <div class="login-card">
+    <div class="brand-mark">🧠</div>
+    <h1 id="login-title">Second Brain</h1>
+    <p class="muted">Masuk dengan kode yang dikirim ke Telegram-mu.</p>
+    <button id="send-code" class="btn primary wide">Kirim kode ke Telegram</button>
+    <form id="code-form" class="stack" hidden>
+      <label for="code-input" class="label">Kode 6 digit</label>
+      <input id="code-input" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button class="btn primary wide" type="submit">Masuk</button>
+    </form>
+    <p id="login-msg" class="msg"></p>
+  </div>
+</div>
+
+<div id="app" class="shell" hidden>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark sm">🧠</span><span id="brand-name">Second Brain</span></div>
+    <nav id="nav">
+      <a href="#/" data-route="">Dashboard</a>
+      <a href="#/tugas" data-route="tugas">Tugas</a>
+      <a href="#/catatan" data-route="catatan">Catatan</a>
+      <a href="#/chat" data-route="chat">Chat AI</a>
+      <a href="#/profil" data-route="profil">Profil &amp; Memori</a>
+      <a href="#/kantor" data-route="kantor">Kantor 3D</a>
+      <a href="#/riset" data-route="riset">Riset Kompetitor</a>
+      <a href="#/sistem" data-route="sistem">Sistem</a>
+    </nav>
+    <div class="sidebar-foot">
+      <span id="who" class="muted small"></span>
+      <button id="logout" class="btn ghost small">Keluar</button>
+    </div>
+  </aside>
+  <main id="view" class="view"></main>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

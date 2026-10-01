@@ -1,0 +1,11 @@
+# Salin menjadi .dev.vars untuk `npm run dev` (jangan di-commit).
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=ganti-dengan-acak
+SESSION_SECRET=ganti-dengan-string-acak-panjang
+# Opsional: Claude Opus untuk pekerjaan berat
+ANTHROPIC_API_KEY=
+# Opsional: Gmail & Drive
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# 1 = tampilkan kode login di layar (hanya untuk dev lokal!)
+DEV_MODE=1

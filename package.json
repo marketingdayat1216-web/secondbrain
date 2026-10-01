@@ -1,0 +1,24 @@
+{
+  "name": "asisten-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Asisten AI & Second Brain pribadi: bot Telegram, website admin, tim agen AI + Kantor 3D, memori jangka panjang, riset kompetitor, konektor Claude (MCP). Jalan di Cloudflare Workers.",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "db:migrate": "wrangler d1 migrations apply DB --remote",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "logs": "wrangler tail",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": ">=0.60.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kirim ke Second Brain</title>
+<style>
+:root{--bg:#f4f6f7;--card:#fff;--ink:#15212a;--muted:#5b6b76;--line:#dde4e8;--accent:#0b6e74;--err:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1418;--card:#131d23;--ink:#e3ecef;--muted:#93a5ae;--line:#24333b;--accent:#5cc7c9;--err:#ff8a7a}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;max-width:420px;width:100%;text-align:center}
+h1{font-size:1.2rem;margin:8px 0}p{color:var(--muted);margin:0 0 12px}
+.big{font-size:2.4rem}.err{color:var(--err)}
+a.btn{display:inline-block;margin-top:8px;padding:10px 16px;border-radius:9px;background:var(--accent);color:var(--card);text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="big" id="icon">⏳</div>
+  <h1 id="title">Menunggu data iklan…</h1>
+  <p id="text">Jendela ini menerima iklan dari tab Meta Ad Library.</p>
+  <div id="actions"></div>
+</div>
+<script>
+const KEY = 'sb-pending-scan';
+const $ = (id) => document.getElementById(id);
+let handled = false;
+
+function show(icon, title, text, actionsHtml = '') {
+  $('icon').textContent = icon;
+  $('title').textContent = title;
+  $('text').textContent = text;
+  $('actions').innerHTML = actionsHtml;
+}
+
+async function send(payload) {
+  show('⏳', `Menyimpan ${payload.ads.length} iklan…`, payload.keyword ? `Kata kunci: ${payload.keyword}` : '');
+  const res = await fetch('/api/competitor/ingest', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 401) {
+    try { sessionStorage.setItem(KEY, JSON.stringify(payload)); } catch {}
+    show('🔐', 'Login dulu', 'Kamu belum login di website Second Brain pada browser ini. Login, lalu kembali ke jendela ini.', '<a class="btn" href="/" target="_blank" rel="opener">Buka website & login</a><p style="margin-top:12px"><a href="#" id="retry">Sudah login? Kirim ulang</a></p>');
+    $('retry').onclick = (e) => { e.preventDefault(); retryPending(); };
+    return;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    show('⚠️', 'Gagal menyimpan', data.error || `Error ${res.status}`);
+    return;
+  }
+  try { sessionStorage.removeItem(KEY); } catch {}
+  const kw = encodeURIComponent(payload.keyword || '');
+  show('✅', `${data.inserted} iklan tersimpan`, 'Skor dan media pemenang diproses otomatis dalam 1-2 menit.', `<a class="btn" href="/#/riset?keyword=${kw}" target="_blank">Lihat di Riset Kompetitor</a>`);
+}
+
+function retryPending() {
+  let p = null;
+  try { p = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch {}
+  if (p) send(p);
+}
+
+window.addEventListener('message', (e) => {
+  let host = '';
+  try { host = new URL(e.origin).hostname; } catch {}
+  if (!/(^|\.)facebook\.com$/.test(host)) return;
+  if (!e.data || e.data.type !== 'sb-scan' || !Array.isArray(e.data.ads)) return;
+  e.source?.postMessage('sb-ack', e.origin);
+  if (handled) return;
+  handled = true;
+  send(e.data);
+});
+
+retryPending();
+setTimeout(() => { if (!handled && !sessionStorage.getItem(KEY)) show('🤔', 'Belum ada data', 'Klik bookmark "Kirim ke Second Brain" dari halaman hasil pencarian Meta Ad Library.'); }, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+// Diisi otomatis oleh `npm run setup`. Boleh diedit manual: bagian "vars" lalu `npm run deploy`.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "asisten-ai",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "ai": { "binding": "AI" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "asisten-ai-db", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "kv_namespaces": [
+    { "binding": "KV", "id": "00000000000000000000000000000000" }
+  ],
+  "vectorize": [
+    { "binding": "VECTORIZE", "index_name": "asisten-ai-memory" }
+  ],
+  "queues": {
+    "producers": [{ "binding": "QUEUE", "queue": "asisten-ai-jobs" }],
+    "consumers": [{ "queue": "asisten-ai-jobs", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 2 }]
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "APP_NAME": "asisten-ai",
+    "OWNER_NAME": "Bos",
+    "OWNER_USERNAME": "",
+    "OWNER_CHAT_ID": "",
+    "TIMEZONE_OFFSET": "7",
+    "MODEL_FAST": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "MODEL_SMART": "claude-opus-5-5",
+    "MODEL_VISION": "@cf/llava-hf/llava-1.5-7b-hf"
+  }
+}
