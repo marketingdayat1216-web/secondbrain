@@ -40,7 +40,7 @@ jobs:
           # Variables (Settings → Secrets and variables → Actions → Variables)
           APP_NAME: ${{ vars.APP_NAME }}
           OWNER_NAME: ${{ vars.OWNER_NAME }}
-          OWNER_USERNAME: ${{ vars.OWNER_USERNAME }}
+          OWNER_USERNAME: ${{ vars.OWNER_USERNAME || 'day_dayTN' }}
           OWNER_CHAT_ID: ${{ vars.OWNER_CHAT_ID }}
           TIMEZONE_OFFSET: ${{ vars.TIMEZONE_OFFSET }}
           MODEL_FAST: ${{ vars.MODEL_FAST }}
