@@ -120,6 +120,9 @@ const config = {
   observability: { enabled: true },
   assets: { directory: './public', binding: 'ASSETS', not_found_handling: 'single-page-application', run_worker_first: true },
   ai: { binding: 'AI' },
+  browser: { binding: 'BROWSER' },
+  // Kode yang dijalankan di halaman lewat Browser Rendering tidak boleh dibungkus helper __name.
+  keep_names: false,
   d1_databases: [{ binding: 'DB', database_name: names.db, database_id: d1Id, migrations_dir: 'migrations' }],
   kv_namespaces: [{ binding: 'KV', id: kvId }],
   vectorize: [{ binding: 'VECTORIZE', index_name: names.index }],

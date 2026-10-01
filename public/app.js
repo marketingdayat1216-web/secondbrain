@@ -1,3 +1,5 @@
+import { scrapeAdLibrary } from '/scanner-core.js';
+
 // Website admin Second Brain (tanpa framework). Rute memakai hash: #/tugas, #/kantor, dst.
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -591,71 +593,9 @@ async function officeView() {
 
 // ---------- Riset Kompetitor ----------
 
-// Dijalankan di halaman Meta Ad Library lewat bookmarklet. Harus mandiri (tidak memakai variabel luar).
-function adLibraryScanner(ORIGIN) {
-  var ID_RE = /(Library ID|ID Galeri|ID Pustaka|ID perpustakaan|ID Arsip)\s*:?\s*(\d{6,})/i;
-  var ID_RE_G = /(Library ID|ID Galeri|ID Pustaka|ID perpustakaan|ID Arsip)\s*:?\s*(\d{6,})/gi;
-  var START_RE = /(Started running on|Mulai ditayangkan pada|Mulai tayang pada|Mulai berjalan pada|Mulai ditayangkan)\s+([^·\n]+)/i;
-  var VAR_RE = /(\d+)\s+(ads use this creative|iklan menggunakan materi|iklan menggunakan konten|iklan menggunakan)/i;
-  var CTA_RE = /^(Shop now|Learn more|Sign up|Send message|Send WhatsApp message|WhatsApp|Book now|Order now|Get offer|Contact us|Download|Install now|Apply now|Subscribe|Watch more|Belanja sekarang|Pelajari selengkapnya|Selengkapnya|Daftar|Kirim pesan|Kirim Pesan WhatsApp|Pesan sekarang|Hubungi kami|Dapatkan penawaran|Unduh|Instal sekarang|Lamar sekarang)$/i;
-  var DOMAIN_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
-  var count = function (t) { var m = (t || '').match(ID_RE_G); return m ? m.length : 0; };
-  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  var seen = {};
-  var ads = [];
-  var node;
-  while ((node = walker.nextNode())) {
-    var mm = (node.nodeValue || '').match(ID_RE);
-    if (!mm || seen[mm[2]]) continue;
-    seen[mm[2]] = 1;
-    var card = node.parentElement;
-    while (card.parentElement && card.parentElement !== document.body && count(card.parentElement.innerText) === 1) card = card.parentElement;
-    var text = card.innerText || '';
-    var start = text.match(START_RE);
-    var variants = text.match(VAR_RE);
-    var active = !/\b(Inactive|Tidak aktif|Nonaktif)\b/i.test(text);
-    var bodyEl = card.querySelector('div[style*="pre-wrap"], span[style*="pre-wrap"]');
-    var body = bodyEl ? bodyEl.innerText : '';
-    if (!body) {
-      var lines = text.split('\n').filter(function (l) { return l.length > 60 && !ID_RE.test(l) && !START_RE.test(l); });
-      body = lines.sort(function (a, b) { return b.length - a.length; })[0] || '';
-    }
-    var pageName = '';
-    var pageUrl = '';
-    var links = card.querySelectorAll('a[href]');
-    for (var i = 0; i < links.length; i++) {
-      var t = (links[i].innerText || '').trim();
-      var h = links[i].href || '';
-      if (t && t.length < 80 && /facebook\.com\/(?!ads\/library|l\.php)/.test(h) && !/ad details|detail iklan|lihat/i.test(t)) { pageName = t; pageUrl = h; break; }
-    }
-    if (!pageName) {
-      var strong = card.querySelector('strong, span[dir="auto"] > span');
-      pageName = strong ? strong.innerText.trim().slice(0, 80) : '';
-    }
-    var cta = '';
-    var landing = '';
-    var leaves = card.querySelectorAll('div, span, a');
-    for (var j = 0; j < leaves.length; j++) {
-      if (leaves[j].children.length) continue;
-      var ct = (leaves[j].innerText || '').trim();
-      if (!cta && ct && ct.length < 40 && CTA_RE.test(ct)) cta = ct;
-      if (!landing && ct && ct.length < 60 && DOMAIN_RE.test(ct) && !/facebook|instagram|fb\.me/i.test(ct)) landing = ct.toLowerCase();
-    }
-    var imgs = [];
-    card.querySelectorAll('img').forEach(function (im) {
-      var w = im.naturalWidth || im.width;
-      var src = im.currentSrc || im.src;
-      if (w >= 150 && src && src.indexOf('http') === 0 && imgs.indexOf(src) < 0) imgs.push(src);
-    });
-    var vids = [];
-    var seconds = null;
-    card.querySelectorAll('video').forEach(function (v) {
-      var src = v.currentSrc || v.src || (v.querySelector('source') || {}).src;
-      if (src && src.indexOf('blob:') !== 0) vids.push({ src: src, poster: v.poster || '' });
-      if (!seconds && isFinite(v.duration) && v.duration > 0) seconds = Math.round(v.duration);
-    });
-    ads.push({ libraryId: mm[2], pageName: pageName, pageUrl: pageUrl, body: body.slice(0, 5000), cta: cta, landing: landing, active: active, startDate: start ? start[2].trim() : '', variants: variants ? variants[1] : 1, images: imgs.slice(0, 6), videos: vids.slice(0, 3), videoSeconds: seconds });
-  }
+// Bookmarklet = pembaca bersama (scanner-core.js) + kirim hasil ke jendela kecil /scan.html.
+function bookmarkletSource(ORIGIN) {
+  var ads = SCRAPE(120);
   if (!ads.length) { alert('Tidak menemukan iklan. Buka hasil pencarian Meta Ad Library dan scroll sampai iklan muncul.'); return; }
   var u = new URL(location.href);
   var payload = { type: 'sb-scan', keyword: u.searchParams.get('q') || '', country: u.searchParams.get('country') || '', url: location.href, ads: ads };
@@ -667,7 +607,7 @@ function adLibraryScanner(ORIGIN) {
 }
 
 function bookmarkletHref() {
-  return 'javascript:' + encodeURIComponent(`(${adLibraryScanner.toString()})(${JSON.stringify(location.origin)});void 0`);
+  return 'javascript:' + encodeURIComponent(`(function(){var SCRAPE=${scrapeAdLibrary.toString()};(${bookmarkletSource.toString()})(${JSON.stringify(location.origin)});})();void 0`);
 }
 
 const ICO = {
@@ -712,6 +652,7 @@ async function researchView(params) {
     open: params.get('open') || '',
   };
   let busy = false;
+  let scanBusy = false;
   view.innerHTML = `
     <div class="page-head rk-head"><div><h1>Riset Kompetitor</h1><p class="muted">Iklan kompetitor dari Meta Ad Library: lengkap dengan gambar &amp; video, lama tayang, duplikat, dan urutan impresi.</p></div></div>
     <div class="rk-tabs" role="tablist">
@@ -731,12 +672,13 @@ async function researchView(params) {
   };
 
   const renderSide = async (s) => {
-    const { watchlist } = await api('/api/competitor/watchlist');
+    const [{ watchlist }, { scans }] = await Promise.all([api('/api/competitor/watchlist'), api('/api/competitor/scan-status')]);
+    scanBusy = Object.values(scans).some((x) => x.state === 'queued' || x.state === 'running');
     const maxAngle = Math.max(1, ...s.angles.map((a) => a.n));
     const last = s.lastScan;
     $('#rk-side').innerHTML = `
       <section><h3>Daftar pantauan</h3><div class="side-card">
-        ${watchlist.map((w) => `<div class="watch-item"><span class="kind">${w.kind === 'page' ? 'Halaman' : 'Kata kunci'}</span><span class="val">${esc(w.value)}</span><span class="muted small">${esc(w.country)}</span><a class="btn small primary" href="${adLibraryUrl(w)}" target="_blank" rel="noopener" title="Buka di Ad Library, lalu klik bookmark Kirim ke Second Brain">Scan ${ico('ext')}</a><button data-del="${w.id}" aria-label="Hapus">${ico('trash')}</button></div>`).join('')}
+        ${watchlist.map((w) => `<div class="watch-item"><span class="kind">${w.kind === 'page' ? 'Halaman' : 'Kata kunci'}</span><span class="val">${esc(w.value)}${scanLine(scans[w.id])}</span><span class="muted small">${esc(w.country)}</span><button class="btn small primary" data-scan="${w.id}" ${['queued', 'running'].includes(scans[w.id]?.state) ? 'disabled' : ''}>Scan</button><a href="${adLibraryUrl(w)}" target="_blank" rel="noopener" title="Buka di Ad Library (manual)" aria-label="Buka di Ad Library">${ico('ext')}</a><button data-del="${w.id}" aria-label="Hapus">${ico('trash')}</button></div>`).join('')}
         <form class="watch-form" id="watch-form">
           <select name="kind" aria-label="Jenis"><option value="keyword">Kata kunci</option><option value="page">Halaman</option></select>
           <input name="value" placeholder="mis. novia" required aria-label="Kata kunci atau halaman">
@@ -744,7 +686,10 @@ async function researchView(params) {
         </form>
       </div></section>
       <section><h3>Cara scan</h3><div class="side-card pad">
-        <p class="scan-step">1. Sendiri, lewat Chrome di laptop</p>
+        <p class="scan-step">Otomatis di Cloudflare</p>
+        <p class="muted small">Server membuka Ad Library, mengurutkan impresi terbanyak, lalu mengambil iklan beserta gambar &amp; video. Berjalan sendiri setiap hari jam 06:00, dan langsung saat kata kunci baru ditambahkan.</p>
+        <button class="btn primary small" id="scan-all" ${watchlist.length ? '' : 'disabled'}>Scan semua sekarang</button>
+        <p class="scan-step" style="margin-top:16px">1. Sendiri, lewat Chrome di laptop</p>
         <p class="muted small">Seret tombol ini ke bookmark bar. Buka Ad Library, cari kata kunci, urutkan <i>Impressions: high to low</i>, lalu klik bookmark-nya. Semua iklan beserta gambar &amp; videonya masuk ke sini.</p>
         <a class="btn primary small" id="bm" href="#">${ico('megaphone')} Kirim ke Second Brain</a>
         <p class="scan-step" style="margin-top:16px">2. Lewat Claude (bisa sekaligus dibuatkan laporan)</p>
@@ -761,12 +706,22 @@ async function researchView(params) {
     const bm = $('#bm');
     bm.href = bookmarkletHref();
     bm.onclick = (e) => { e.preventDefault(); toast('Seret tombol ini ke bookmark bar, jangan diklik di sini.'); };
+    $('#scan-all').onclick = async () => {
+      const r = await api('/api/competitor/scan', { method: 'POST', body: {} });
+      toast(`${r.queued} kata kunci masuk antrean scan (±1 menit per kata kunci)`);
+      renderSide(s);
+    };
+    document.querySelectorAll('[data-scan]').forEach((b) => (b.onclick = async () => {
+      await api('/api/competitor/scan', { method: 'POST', body: { watchId: b.dataset.scan } });
+      toast('Scan dimulai di Cloudflare, ±1 menit');
+      renderSide(s);
+    }));
     $('#copy-prompt').onclick = () => navigator.clipboard.writeText(CLAUDE_PROMPT).then(() => toast('Disalin'));
     $('#watch-form').onsubmit = async (e) => {
       e.preventDefault();
       try {
         await api('/api/competitor/watchlist', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
-        toast('Ditambahkan ke daftar pantauan');
+        toast('Ditambahkan. Scan otomatis dimulai di Cloudflare, ±1 menit.');
         renderSide(s);
       } catch (err) {
         toast(err.message);
@@ -906,10 +861,23 @@ async function researchView(params) {
   lastStats = await stats();
   await Promise.all([renderSide(lastStats), renderMain()]);
   every(8000, async () => {
-    if (!busy || document.querySelector('dialog[open]')) return;
+    if (!(busy || scanBusy) || document.querySelector('dialog[open]')) return;
+    const wasScanning = scanBusy;
     lastStats = await stats();
+    if (wasScanning) await renderSide(lastStats);
     if (st.tab === 'galeri') loadAds(); else renderWork(st.tab);
   });
+}
+
+function scanLine(x) {
+  if (!x) return '';
+  const label = {
+    queued: 'menunggu giliran scan…',
+    running: 'sedang scan di Cloudflare…',
+    done: `scan ${fmtWhen(x.at)} · ${x.count || 0} iklan, ${x.fresh || 0} baru`,
+    error: `gagal: ${x.error || ''}`,
+  }[x.state] || '';
+  return label ? `<small class="${x.state === 'error' ? 'scan-err' : 'muted'}" style="display:block;font-weight:400">${esc(label)}</small>` : '';
 }
 
 function badges(a) {

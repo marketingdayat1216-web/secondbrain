@@ -14,6 +14,7 @@ import { agentState, startRun, getRun, AGENTS } from './agents.js';
 import {
   listAds, ingestScan, deleteAd, decorateAd, researchStats, listWatchlist, addWatch, removeWatch, listWork, analyzeTop,
 } from './competitor.js';
+import { queueScans, scanStatus } from './browser-scan.js';
 import { googleStatus, googleConnectUrl, googleDisconnect } from './google.js';
 import { fastModel, smartModel, hasSmart, modelLabel } from './ai.js';
 import { tg } from './telegram-api.js';
@@ -194,7 +195,11 @@ export async function handleApi(request, env, url, origin) {
   if (path === '/api/competitor/watchlist' && method === 'GET') return json({ watchlist: await listWatchlist(env) });
   if (path === '/api/competitor/watchlist' && method === 'POST') {
     try {
-      return json({ watchlist: await addWatch(env, body) }, 201);
+      const list = await addWatch(env, body);
+      // Langsung scan item baru di Cloudflare.
+      const added = list.find((w) => w.value === String(body.value || '').trim() && w.kind === (body.kind === 'page' ? 'page' : 'keyword'));
+      if (added && body.scan !== false) await queueScans(env, [added.id]);
+      return json({ watchlist: list, scanning: Boolean(added) }, 201);
     } catch (e) {
       return json({ error: e.message }, 400);
     }
@@ -203,6 +208,11 @@ export async function handleApi(request, env, url, origin) {
     await removeWatch(env, Number(seg[2]));
     return json({ ok: true });
   }
+  if (path === '/api/competitor/scan' && method === 'POST') {
+    const n = await queueScans(env, body.watchId ? [Number(body.watchId)] : []);
+    return json({ queued: n });
+  }
+  if (path === '/api/competitor/scan-status') return json({ scans: await scanStatus(env) });
   if (path === '/api/competitor/reports') return json({ ads: await listWork(env, 'analysis') });
   if (path === '/api/competitor/content') return json({ ads: await listWork(env, 'variations') });
   if (path === '/api/competitor/analyze-top' && method === 'POST') {

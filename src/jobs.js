@@ -3,6 +3,7 @@
 import { processUpdate } from './telegram.js';
 import { planRun, runStep, finalizeRun, failRun } from './agents.js';
 import { scoreScan, saveAdMedia, analyzeAd, makeVariations } from './competitor.js';
+import { runBrowserScan } from './browser-scan.js';
 import { smartChat, modelLabel } from './ai.js';
 import { addNote, getProfile } from './store.js';
 import { sendText } from './telegram-api.js';
@@ -37,6 +38,8 @@ export async function handleJob(env, job) {
       }
     case 'ads_score':
       return scoreScan(env, job.scanId);
+    case 'ads_browser_scan':
+      return runBrowserScan(env, job.watchId);
     case 'ads_save_media':
       return saveAdMedia(env, job.adId);
     case 'ads_analyze':

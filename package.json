@@ -13,7 +13,8 @@
     "check": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": ">=0.60.0"
+    "@anthropic-ai/sdk": ">=0.60.0",
+    "@cloudflare/puppeteer": ">=0.0.11"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

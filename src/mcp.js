@@ -7,6 +7,7 @@ import {
 } from './store.js';
 import { searchContext, remember, listMemories } from './memory.js';
 import { listAds, ingestScan, listWatchlist, saveReport } from './competitor.js';
+import { queueScans } from './browser-scan.js';
 import { first } from './db.js';
 import { startRun, agentState, getRun } from './agents.js';
 import { parseLocal, toLocalInput, nowDescription } from './time.js';
@@ -140,6 +141,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'scan_watchlist',
+    description: 'Jalankan scan otomatis Meta Ad Library di server (Cloudflare Browser Rendering) untuk seluruh daftar pantauan. Hasil masuk ke Riset Kompetitor dalam beberapa menit; cek dengan list_competitor_ads.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'save_ad_report',
     description: 'Simpan laporan bedah iklan (Markdown) untuk satu iklan kompetitor; muncul di tab "Laporan bedah iklan" website.',
     inputSchema: {
@@ -267,6 +273,10 @@ async function callTool(env, name, args = {}) {
       return w.length
         ? w.map((x) => `- ${x.kind === 'page' ? 'Halaman' : 'Kata kunci'}: "${x.value}" (negara ${x.country}) → https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${x.country}&q=${encodeURIComponent(x.value)}&search_type=${x.kind === 'page' ? 'page' : 'keyword_unordered'}&sort_data[direction]=desc&sort_data[mode]=total_impressions`).join('\n')
         : 'Daftar pantauan kosong. Tambahkan di website: Riset Kompetitor → Daftar pantauan.';
+    }
+    case 'scan_watchlist': {
+      const n = await queueScans(env);
+      return n ? `${n} item daftar pantauan masuk antrean scan (±1 menit per item).` : 'Daftar pantauan kosong.';
     }
     case 'save_ad_report': {
       const id = await saveReport(env, args.id, args.report || '');

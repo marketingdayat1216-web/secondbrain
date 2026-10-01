@@ -7,11 +7,13 @@ import { getProfile, taskStats } from './store.js';
 import { isGoogleConnected, listEmails } from './google.js';
 import { localParts, startOfLocalDay, fmtLocal, longDate, DAY } from './time.js';
 import { truncate } from './util.js';
+import { dailyAutoScan } from './browser-scan.js';
 
 const BRIEFING_HOUR = 7;
 const RECAP_HOUR = 21;
 
 export async function runCron(env) {
+  await dailyAutoScan(env).catch((e) => console.error('auto scan', e?.message));
   if (!env.TELEGRAM_BOT_TOKEN || !env.OWNER_CHAT_ID) return;
   await sendDueReminders(env);
   const p = localParts(env);
