@@ -694,6 +694,11 @@ function fmtWhen(ts) {
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   return d.toDateString() === new Date().toDateString() ? `Hari ini ${hm}` : `${d.getDate()} ${BULAN[d.getMonth()]} ${hm}`;
 }
+// Hasil Ad Library untuk satu item pantauan: iklan aktif, diurutkan dari impresi terbanyak.
+function adLibraryUrl(w) {
+  const p = new URLSearchParams({ active_status: 'active', ad_type: 'all', country: w.country || 'ID', q: w.value, search_type: 'keyword_unordered', media_type: 'all' });
+  return `https://www.facebook.com/ads/library/?${p}&sort_data[direction]=desc&sort_data[mode]=total_impressions`;
+}
 const CLAUDE_PROMPT = 'Scan iklan kompetitor dari daftar pantauan Second Brain di Meta Ad Library (pakai browser, urut impresi, ambil gambar & video), simpan semua hasilnya, lalu buat laporan bedah iklannya.';
 
 async function researchView(params) {
@@ -731,7 +736,7 @@ async function researchView(params) {
     const last = s.lastScan;
     $('#rk-side').innerHTML = `
       <section><h3>Daftar pantauan</h3><div class="side-card">
-        ${watchlist.map((w) => `<div class="watch-item"><span class="kind">${w.kind === 'page' ? 'Halaman' : 'Kata kunci'}</span><span class="val">${esc(w.value)}</span><span class="muted small">${esc(w.country)}</span><button data-del="${w.id}" aria-label="Hapus">${ico('trash')}</button></div>`).join('')}
+        ${watchlist.map((w) => `<div class="watch-item"><span class="kind">${w.kind === 'page' ? 'Halaman' : 'Kata kunci'}</span><span class="val">${esc(w.value)}</span><span class="muted small">${esc(w.country)}</span><a class="btn small primary" href="${adLibraryUrl(w)}" target="_blank" rel="noopener" title="Buka di Ad Library, lalu klik bookmark Kirim ke Second Brain">Scan ${ico('ext')}</a><button data-del="${w.id}" aria-label="Hapus">${ico('trash')}</button></div>`).join('')}
         <form class="watch-form" id="watch-form">
           <select name="kind" aria-label="Jenis"><option value="keyword">Kata kunci</option><option value="page">Halaman</option></select>
           <input name="value" placeholder="mis. novia" required aria-label="Kata kunci atau halaman">
@@ -785,7 +790,16 @@ async function researchView(params) {
     busy = ads.some((a) => a.score === null || a.analysis_status === 'pending' || a.variations_status === 'pending');
     const list = $('#ads');
     if (!list) return;
-    list.innerHTML = ads.length ? ads.map(adRow).join('') : '<div class="side-card empty">Belum ada iklan untuk filter ini. Tambahkan kata kunci di Daftar pantauan, lalu scan lewat bookmark atau Claude.</div>';
+    list.innerHTML = ads.length ? ads.map(adRow).join('') : (st.q || st.page || st.angle || st.active)
+      ? '<div class="side-card empty">Tidak ada iklan yang cocok dengan filter ini.</div>'
+      : `<div class="side-card pad"><h3>Belum ada iklan. Begini cara mengisinya:</h3>
+          <ol class="steps">
+            <li>Seret tombol <b>Kirim ke Second Brain</b> (kolom kanan, bagian Cara scan) ke bookmark bar Chrome. Cukup sekali.</li>
+            <li>Klik tombol <b>Scan ↗</b> di Daftar pantauan. Meta Ad Library terbuka dengan kata kuncimu, sudah diurutkan dari impresi terbanyak.</li>
+            <li>Scroll halaman itu sampai semua iklan yang kamu mau tampil.</li>
+            <li>Klik bookmark <b>Kirim ke Second Brain</b>. Jendela kecil terbuka, lalu iklan muncul di sini dalam beberapa detik.</li>
+          </ol>
+          <p class="muted small">Daftar pantauan tidak men-scan sendiri: Meta tidak menyediakan jalur resmi untuk mengambil iklan komersial Indonesia otomatis dari server.</p></div>`;
     bindAdRows(list, ads);
   };
 
