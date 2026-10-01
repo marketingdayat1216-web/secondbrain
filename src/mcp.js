@@ -6,7 +6,7 @@ import {
   listTasks, addTask, completeTask, updateTask, listNotes, addNote, getNote, getProfile,
 } from './store.js';
 import { searchContext, remember, listMemories } from './memory.js';
-import { listAds } from './competitor.js';
+import { listAds, ingestScan } from './competitor.js';
 import { first } from './db.js';
 import { startRun, agentState, getRun } from './agents.js';
 import { parseLocal, toLocalInput, nowDescription } from './time.js';
@@ -97,6 +97,36 @@ const TOOLS = [
     },
   },
   {
+    name: 'import_competitor_ads',
+    description: 'Simpan iklan kompetitor ke halaman Riset Kompetitor Second Brain. Pakai untuk hasil pencarian Meta Ad Library (mis. dari tool ads_library_search konektor Meta Ads): kirim tiap iklan apa adanya (id, page_id, page_name, ad_creative_link_title, ad_creative_bodies, ad_delivery_start_time, ad_snapshot_url). Setelah tersimpan, iklan dinilai otomatis dan bisa dibedah atau dibuatkan 5 konten mirip dari website.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        keyword: { type: 'string', description: 'Kata kunci pencarian, untuk mengelompokkan hasil' },
+        country: { type: 'string', description: 'Kode negara ISO-2, mis. ID' },
+        ads: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Library ID iklan' },
+              page_id: { type: 'string' },
+              page_name: { type: 'string' },
+              ad_creative_link_title: { type: 'string' },
+              ad_creative_bodies: { type: 'array', items: { type: 'string' } },
+              ad_creative_body: { type: 'string' },
+              ad_delivery_start_time: { description: 'Unix detik atau tanggal YYYY-MM-DD' },
+              ad_snapshot_url: { type: 'string' },
+              images: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['id'],
+          },
+        },
+      },
+      required: ['ads'],
+    },
+  },
+  {
     name: 'get_competitor_ad',
     description: 'Detail satu iklan kompetitor termasuk laporan bedah iklan dan 5 konten mirip bila sudah dibuat.',
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
@@ -112,6 +142,28 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: { type: 'integer' } } },
   },
 ];
+
+// Ubah satu iklan dari format Meta Ad Library (API/MCP) ke format scan Second Brain.
+function fromMetaAd(a = {}) {
+  const uniq = (s) => [...new Set(String(s || '').split(' | ').map((x) => x.trim()).filter(Boolean))].join(' | ');
+  const bodies = Array.isArray(a.ad_creative_bodies) ? a.ad_creative_bodies : [];
+  const body = uniq(bodies[0] || a.ad_creative_body || '') || uniq(a.ad_creative_link_title);
+  const t = a.ad_delivery_start_time ?? a.ad_creation_time;
+  let startDate = '';
+  if (typeof t === 'number' || /^\d{9,}$/.test(String(t || ''))) startDate = new Date(Number(t) * 1000).toISOString().slice(0, 10);
+  else if (t) startDate = String(t).slice(0, 10);
+  return {
+    libraryId: String(a.id || a.library_id || ''),
+    pageName: a.page_name || '',
+    pageUrl: a.page_id ? `https://www.facebook.com/${a.page_id}` : '',
+    body,
+    cta: '',
+    startDate,
+    variants: 1,
+    images: Array.isArray(a.images) ? a.images : [],
+    videos: [],
+  };
+}
 
 const fmtTask = (env, t) => `#${t.id} [${t.status === 'done' ? 'x' : ' '}] ${t.title}${t.due_at ? ` (tenggat ${toLocalInput(env, t.due_at)})` : ''}${t.priority === 'high' ? ' !penting' : ''}`;
 
@@ -170,12 +222,24 @@ async function callTool(env, name, args = {}) {
     }
     case 'list_competitor_ads': {
       const ads = await listAds(env, { keyword: args.keyword || '', sort: args.sort || 'rank', limit: Math.min(60, args.limit || 20), winners: Boolean(args.winners_only) });
-      return ads.map((a) => `#${a.id} ${a.page_name} | "${a.keyword}" urutan #${a.rank} | tayang ${a.days_running ?? '?'} hari | skor ${a.score ?? '-'}${a.winner ? ' | PEMENANG' : ''}\n  ${truncate(a.body.replace(/\s+/g, ' '), 220)}`).join('\n') || 'Belum ada data. Scan dulu dari Meta Ad Library.';
+      return ads.map((a) => `#${a.id} ${a.page_name} | "${a.keyword}"${a.rank ? ` urutan #${a.rank}` : ''} | tayang ${a.days_running ?? '?'} hari | skor ${a.score ?? '-'}${a.winner ? ' | PEMENANG' : ''}\n  ${truncate(a.body.replace(/\s+/g, ' '), 220)}`).join('\n') || 'Belum ada data. Scan dulu dari Meta Ad Library.';
+    }
+    case 'import_competitor_ads': {
+      const ads = (args.ads || []).map(fromMetaAd).filter((a) => a.libraryId);
+      if (!ads.length) return 'Tidak ada iklan yang valid (butuh minimal id).';
+      const r = await ingestScan(env, {
+        keyword: args.keyword || '',
+        country: args.country || '',
+        url: 'meta-mcp',
+        ranked: false,
+        ads,
+      });
+      return `${r.inserted} iklan tersimpan di Riset Kompetitor (kata kunci "${r.scan.keyword}"). Skor dihitung otomatis dalam 1-2 menit. Lihat dengan list_competitor_ads.`;
     }
     case 'get_competitor_ad': {
       const a = await first(env, 'SELECT * FROM competitor_ads WHERE id = ?', Number(args.id));
       if (!a) return 'Iklan tidak ditemukan.';
-      return `Halaman: ${a.page_name}\nLibrary ID: ${a.library_id} (https://www.facebook.com/ads/library/?id=${a.library_id})\nMulai tayang: ${a.start_date}\nUrutan: #${a.rank} untuk "${a.keyword}"\nSkor: ${a.score ?? '-'} — ${a.score_reason}\nCTA: ${a.cta}\n\nTEKS:\n${a.body}\n\nBEDAH IKLAN:\n${a.analysis || '(belum)'}\n\n5 KONTEN MIRIP:\n${a.variations || '(belum)'}`;
+      return `Halaman: ${a.page_name}\nLibrary ID: ${a.library_id} (https://www.facebook.com/ads/library/?id=${a.library_id})\nMulai tayang: ${a.start_date}\nUrutan impresi: ${a.rank ? '#' + a.rank : '-'} untuk "${a.keyword}"\nSkor: ${a.score ?? '-'} — ${a.score_reason}\nCTA: ${a.cta}\n\nTEKS:\n${a.body}\n\nBEDAH IKLAN:\n${a.analysis || '(belum)'}\n\n5 KONTEN MIRIP:\n${a.variations || '(belum)'}`;
     }
     case 'run_team': {
       const r = await startRun(env, args.command, { source: 'claude' });

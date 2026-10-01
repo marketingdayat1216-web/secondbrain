@@ -93,6 +93,7 @@ Kunci rahasia sesi (`SESSION_SECRET`) dibuat otomatis sekali di Cloudflare; raha
 - **Website admin:** buka alamat dari ringkasan deploy → *Kirim kode ke Telegram* → masukkan kodenya.
 - **Kantor 3D:** tulis perintah di kotak bawah panggung, mis. "Buat strategi promo 11.11 untuk produk terlaris". Laporan akhir dikirim ke Telegram dan disimpan di Catatan.
 - **Riset Kompetitor:** menu Riset Kompetitor → *Cara scan* → seret tombol *Kirim ke Second Brain* ke bookmark bar Chrome. Buka [Meta Ad Library](https://www.facebook.com/ads/library/), cari kata kunci, urutkan *Impressions: high to low*, scroll, lalu klik bookmark itu.
+- **Riset lewat Meta Ads MCP:** di claude.ai aktifkan konektor **Meta Ads** (`https://mcp.facebook.com/ads`, butuh akun iklan aktif) dan konektor Second Brain, lalu minta "Cari iklan aktif kompetitor skincare di Indonesia lewat Ad Library, simpan ke Second Brain". Claude memakai `ads_library_search` lalu tool `import_competitor_ads`. Hasilnya tanpa gambar/video dan tanpa urutan impresi; untuk itu pakai bookmarklet.
 - **Konektor Claude:** claude.ai → Settings → Connectors → Add custom connector → `https://<alamat-website>/mcp` → Connect → masuk dengan kode Telegram → Izinkan.
 
 ### Perintah bot

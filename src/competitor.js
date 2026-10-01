@@ -44,7 +44,7 @@ export async function ingestScan(env, payload) {
     const libraryId = String(ad.libraryId || '').replace(/\D/g, '');
     if (!libraryId) return;
     const media = [
-      ...(ad.images || []).slice(0, 6).map((url) => ({ type: 'image', url })),
+      ...(ad.images || []).slice(0, 6).map((url) => ({ type: 'image', url: typeof url === 'string' ? url : url?.url })),
       ...(ad.videos || []).slice(0, 3).map((v) => ({ type: 'video', url: v.src || '', poster: v.poster || '' })),
     ].filter((m) => m.url && /^https:/.test(m.url));
     stmts.push(env.DB.prepare(
@@ -53,8 +53,11 @@ export async function ingestScan(env, payload) {
        ON CONFLICT(library_id) DO UPDATE SET
          page_name = excluded.page_name, page_url = excluded.page_url,
          body = CASE WHEN length(excluded.body) > 0 THEN excluded.body ELSE competitor_ads.body END,
-         cta = excluded.cta, start_date = excluded.start_date, start_ts = COALESCE(excluded.start_ts, competitor_ads.start_ts),
-         variants = excluded.variants, rank = excluded.rank, keyword = excluded.keyword, scan_id = excluded.scan_id,
+         cta = CASE WHEN length(excluded.cta) > 0 THEN excluded.cta ELSE competitor_ads.cta END,
+         start_date = CASE WHEN length(excluded.start_date) > 0 THEN excluded.start_date ELSE competitor_ads.start_date END,
+         start_ts = COALESCE(excluded.start_ts, competitor_ads.start_ts),
+         variants = MAX(excluded.variants, competitor_ads.variants), rank = COALESCE(excluded.rank, competitor_ads.rank),
+         keyword = excluded.keyword, scan_id = excluded.scan_id,
          media = CASE WHEN competitor_ads.media_saved = 1 THEN competitor_ads.media ELSE excluded.media END,
          last_seen = excluded.last_seen`,
     ).bind(
@@ -66,7 +69,8 @@ export async function ingestScan(env, payload) {
       String(ad.startDate || '').slice(0, 100),
       parseAdDate(ad.startDate),
       Math.max(1, parseInt(ad.variants, 10) || 1),
-      i + 1,
+      // Urutan dari bookmarklet = urutan impresi. Hasil Meta MCP diurutkan lain, jadi tidak diberi peringkat.
+      payload.ranked === false ? null : i + 1,
       scan.keyword,
       scan.id,
       JSON.stringify(media),
@@ -111,7 +115,7 @@ export async function scoreScan(env, scanId) {
       const aiScore = Number.isFinite(Number(s?.score)) ? Math.max(0, Math.min(100, Number(s.score))) : null;
       const score = aiScore === null ? h : Math.round(h * 0.6 + aiScore * 0.4);
       const days = daysSince(a.start_ts);
-      const reason = `${days !== null ? `Tayang ${days} hari` : 'Lama tayang tidak diketahui'}, urutan impresi #${a.rank}${a.variants > 1 ? `, ${a.variants} varian` : ''}.${s?.reason ? ' ' + s.reason : ''}`;
+      const reason = `${days !== null ? `Tayang ${days} hari` : 'Lama tayang tidak diketahui'}${a.rank ? `, urutan impresi #${a.rank}` : ''}${a.variants > 1 ? `, ${a.variants} varian` : ''}.${s?.reason ? ' ' + s.reason : ''}`;
       return env.DB.prepare('UPDATE competitor_ads SET score = ?, score_reason = ?, score_model = ? WHERE id = ?').bind(Math.min(100, score), reason, aiScore === null ? 'heuristik' : model, a.id);
     });
     await env.DB.batch(stmts);
@@ -172,7 +176,7 @@ async function adImagesForClaude(env, ad) {
 }
 
 function adSummary(a) {
-  return `Halaman: ${a.page_name}\nLibrary ID: ${a.library_id}\nMulai tayang: ${a.start_date || '?'} (${daysSince(a.start_ts) ?? '?'} hari)\nUrutan impresi di pencarian "${a.keyword}": #${a.rank}\nJumlah varian: ${a.variants}\nCTA: ${a.cta || '-'}\nSkor: ${a.score ?? '-'} (${a.score_reason})\nTeks iklan:\n"""${a.body || '(tanpa teks)'}"""`;
+  return `Halaman: ${a.page_name}\nLibrary ID: ${a.library_id}\nMulai tayang: ${a.start_date || '?'} (${daysSince(a.start_ts) ?? '?'} hari)\nUrutan impresi di pencarian "${a.keyword}": ${a.rank ? '#' + a.rank : 'tidak diketahui'}\nJumlah varian: ${a.variants}\nCTA: ${a.cta || '-'}\nSkor: ${a.score ?? '-'} (${a.score_reason})\nTeks iklan:\n"""${a.body || '(tanpa teks)'}"""`;
 }
 
 export async function analyzeAd(env, adId) {
@@ -237,7 +241,7 @@ export async function listAds(env, { keyword = '', scanId = null, sort = 'rank',
     params.push(scanId);
   }
   const order = {
-    rank: 'rank IS NULL, rank ASC',
+    rank: 'rank IS NULL, rank ASC, start_ts IS NULL, start_ts ASC',
     days: 'start_ts IS NULL, start_ts ASC',
     score: 'score IS NULL, score DESC',
     new: 'first_seen DESC',

@@ -693,6 +693,8 @@ async function researchView(params) {
         <li>Urutkan <b>Impressions: high to low</b> (Tayangan: tertinggi ke terendah) dan scroll supaya lebih banyak iklan dimuat.</li>
         <li>Klik bookmark <b>Kirim ke Second Brain</b>. Jendela kecil terbuka dan iklan tersimpan di sini.</li>
       </ol>
+      <h3 style="margin-top:6px">Atau lewat Claude + konektor Meta Ads</h3>
+      <p class="small">Di claude.ai, aktifkan konektor <b>Meta Ads</b> dan konektor Second Brain (URL di menu Sistem), lalu minta misalnya: <i>"Cari iklan aktif kompetitor skincare di Indonesia lewat Ad Library, lalu simpan ke Second Brain."</i> Cara ini tidak membawa gambar/video dan urutan impresi; untuk itu pakai bookmark di atas.</p>
       <p class="muted small">Pastikan kamu sudah login di website ini pada browser yang sama. Iklan pemenang (tayang ≥30 hari, 5 teratas, atau skor ≥75) otomatis disalin permanen karena link media Facebook kedaluwarsa dalam beberapa hari.</p>
     </div>
     <div class="dlg-foot"><span></span><button class="btn" onclick="this.closest('dialog').close()">Tutup</button></div>`,
@@ -723,13 +725,13 @@ async function researchView(params) {
 
 function adCard(a) {
   const m = a.media[0];
-  const media = !m ? '<div class="nomedia">Tanpa media</div>'
+  const media = !m ? '<div class="nomedia">Tanpa media<br><a href="https://www.facebook.com/ads/library/?id=${esc(a.library_id)}" target="_blank" rel="noopener">Lihat iklan di Ad Library ↗</a></div>'
     : m.type === 'video'
       ? `<video src="${esc(m.display)}" ${m.poster ? `poster="${esc(m.poster)}"` : ''} muted playsinline preload="none" controls></video>`
       : `<img src="${esc(m.display)}" alt="Iklan ${esc(a.page_name)}" loading="lazy" referrerpolicy="no-referrer">`;
   const pending = (s) => s === 'pending';
   return `<article class="ad" data-id="${a.id}">
-    <div class="ad-media">${media}<span class="rank">#${a.rank ?? '–'}</span>${a.winner ? '<span class="chip warn win">🏆 pemenang</span>' : ''}</div>
+    <div class="ad-media">${media}${a.rank ? `<span class="rank">#${a.rank}</span>` : ''}${a.winner ? '<span class="chip warn win">🏆 pemenang</span>' : ''}</div>
     <div class="ad-body">
       <div class="ad-page">${esc(a.page_name || 'Tanpa nama')}</div>
       <div class="ad-meta">
@@ -759,7 +761,7 @@ async function openAd(id, reload) {
   const { ad: a } = await api(`/api/competitor/ads/${id}`);
   const d = dialog(`
     <div class="dlg-body">
-      <h2>${esc(a.page_name || 'Iklan')} <span class="muted small">#${a.rank} · ${esc(a.keyword)}</span></h2>
+      <h2>${esc(a.page_name || 'Iklan')} <span class="muted small">${a.rank ? '#' + a.rank + ' · ' : ''}${esc(a.keyword)}</span></h2>
       <div class="media-strip">${a.media.map((m) => m.type === 'video'
         ? `<video src="${esc(m.display)}" ${m.poster ? `poster="${esc(m.poster)}"` : ''} controls playsinline preload="metadata"></video>`
         : `<img src="${esc(m.display)}" alt="" referrerpolicy="no-referrer">`).join('') || '<p class="muted">Tanpa media.</p>'}</div>
